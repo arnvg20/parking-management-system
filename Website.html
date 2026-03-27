@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parking Management System</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+
+        .tabs {
+            display: flex;
+            border-bottom: 2px solid #e0e0e0;
+            background: #f5f5f5;
+        }
+
+        .tab-btn {
+            flex: 1;
+            padding: 15px 20px;
+            border: none;
+            background: none;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            color: #666;
+            transition: all 0.3s ease;
+            border-bottom: 3px solid transparent;
+        }
+
+        .tab-btn:hover {
+            background: #efefef;
+        }
+
+        .tab-btn.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+            background: white;
+        }
+
+        .tab-content {
+            display: none;
+            padding: 40px;
+            animation: fadeIn 0.5s ease;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+            to {
+                opacity: 1;
+            }
+        }
+
+        /* Tab 1 - Parking Lot Styles */
+        .parking-container {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 30px;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        .parking-lot {
+            background: #f9f9f9;
+            border: 2px solid #ddd;
+            border-radius: 10px;
+            padding: 20px;
+        }
+
+        .lot-title {
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 20px;
+            text-align: center;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .spaces-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 10px;
+        }
+
+        .parking-space {
+            aspect-ratio: 1;
+            border: 2px solid #333;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 12px;
+            transition: all 0.3s ease;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+        }
+
+        .parking-space.available {
+            background: #4caf50;
+            color: white;
+            cursor: not-allowed;
+        }
+
+        .parking-space.occupied {
+            background: #f44336;
+            color: white;
+            cursor: pointer;
+        }
+
+        .parking-space.occupied:hover {
+            transform: scale(1.05);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        }
+
+        .status-bar {
+            display: flex;
+            justify-content: space-around;
+            margin-top: 30px;
+            padding: 20px;
+            background: #f5f5f5;
+            border-radius: 10px;
+        }
+
+        .status-item {
+            text-align: center;
+        }
+
+        .status-color {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+
+        .status-color.available {
+            background: #4caf50;
+        }
+
+        .status-color.occupied {
+            background: #f44336;
+        }
+
+        /* Tab 2 & 3 Placeholder */
+        .placeholder {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+        }
+
+        .placeholder h2 {
+            font-size: 28px;
+            margin-bottom: 10px;
+            color: #667eea;
+        }
+
+        .connection-status {
+            padding: 10px 20px;
+            margin: 10px;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+
+        .connection-status.connected {
+            background: #4caf50;
+            color: white;
+        }
+
+        .connection-status.disconnected {
+            background: #ff9800;
+            color: white;
+        }
+
+        /* Modal Styles */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            animation: fadeIn 0.3s ease;
+        }
+
+        .modal-content {
+            background-color: white;
+            margin: 10% auto;
+            padding: 30px;
+            border-radius: 15px;
+            width: 400px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateY(-50px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        .modal-header {
+            font-size: 24px;
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+
+        .modal-item {
+            margin: 15px 0;
+            font-size: 15px;
+        }
+
+        .modal-label {
+            color: #666;
+            font-weight: 600;
+        }
+
+        .modal-value {
+            color: #333;
+            margin-top: 5px;
+            padding: 8px;
+            background: #f5f5f5;
+            border-radius: 5px;
+            word-break: break-all;
+        }
+
+        .close-btn {
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            color: #667eea;
+            cursor: pointer;
+            transition: color 0.3s ease;
+        }
+
+        .close-btn:hover {
+            color: #f44336;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🅿️ Parking Management System</h1>
+            <p>Real-time Parking Lot Monitor</p>
+            <div id="connectionStatus" class="connection-status disconnected">Connecting to backend...</div>
+        </div>
+
+        <div class="tabs">
+            <button class="tab-btn active" onclick="openTab(event, 'tab1')">Dash</button>
+            <button class="tab-btn" onclick="openTab(event, 'tab2')">OP Terminal</button>
+            <button class="tab-btn" onclick="openTab(event, 'tab3')">Data</button>
+        </div>
+
+        <!-- Tab 1: Parking Lots -->
+        <div id="tab1" class="tab-content active">
+            <div class="parking-container" id="parkingContainer"></div>
+            <div class="status-bar">
+                <div class="status-item">
+                    <span class="status-color available"></span>
+                    <strong>Available: <span id="availableCount">0</span></strong>
+                </div>
+                <div class="status-item">
+                    <span class="status-color occupied"></span>
+                    <strong>Occupied: <span id="occupiedCount">0</span></strong>
+                </div>
+                <div class="status-item">
+                    <strong>Total: <span id="totalCount">40</span></strong>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab 2: Analytics -->
+        <div id="tab2" class="tab-content">
+            <div class="placeholder">
+                <h2>📊 Analytics Dashboard</h2>
+                <p>Coming soon...</p>
+            </div>
+        </div>
+
+        <!-- Tab 3: Settings -->
+        <div id="tab3" class="tab-content">
+            <div class="placeholder">
+                <h2>⚙️ Settings</h2>
+                <p>Coming soon...</p>
+            </div>
+        </div>
+
+        <!-- Modal for vehicle info -->
+        <div id="vehicleModal" class="modal">
+            <div class="modal-content">
+                <span class="close-btn" onclick="closeModal()">&times;</span>
+                <div class="modal-header">📍 Parking Space <span id="spaceIdDisplay"></span></div>
+                
+                <div class="modal-item">
+                    <div class="modal-label">🚗 License Plate</div>
+                    <div class="modal-value" id="licensePlateDisplay">-</div>
+                </div>
+                
+                <div class="modal-item">
+                    <div class="modal-label">📌 Latitude</div>
+                    <div class="modal-value" id="latitudeDisplay">-</div>
+                </div>
+                
+                <div class="modal-item">
+                    <div class="modal-label">📌 Longitude</div>
+                    <div class="modal-value" id="longitudeDisplay">-</div>
+                </div>
+                
+                <div class="modal-item">
+                    <div class="modal-label">⏰ Parked Time</div>
+                    <div class="modal-value" id="timeDisplay">-</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const lots = {
+            'A': { name: 'Lot A', spaces: 10 },
+            'B': { name: 'Lot B', spaces: 10 },
+            'C': { name: 'Lot C', spaces: 10 },
+            'D': { name: 'Lot D', spaces: 10 }
+        };
+
+        let parkingStatus = {};
+        const API_URL = 'http://localhost:5000/api';
+        let isBackendConnected = false;
+
+        async function initializeParkingLots() {
+            const container = document.getElementById('parkingContainer');
+            container.innerHTML = '';
+
+            try {
+                const response = await fetch(`${API_URL}/parking-spaces`);
+                const spaces = await response.json();
+                parkingStatus = spaces;
+                isBackendConnected = true;
+                updateConnectionStatus();
+
+                Object.keys(lots).forEach(lotLetter => {
+                    const lot = lots[lotLetter];
+                    const lotDiv = document.createElement('div');
+                    lotDiv.className = 'parking-lot';
+
+                    let lotHTML = `<div class="lot-title">${lot.name}</div>`;
+                    lotHTML += '<div class="spaces-grid">';
+
+                    for (let i = 1; i <= lot.spaces; i++) {
+                        const spaceId = `${lotLetter}${i}`;
+                        const spaceData = spaces[spaceId];
+                        
+                        if (spaceData) {
+                            const statusClass = spaceData.occupied ? 'occupied' : 'available';
+                            const isClickable = spaceData.occupied ? `onclick="showVehicleInfo('${spaceId}')"` : '';
+                            
+                            lotHTML += `<button class="parking-space ${statusClass}" 
+                                id="${spaceId}" 
+                                ${isClickable}
+                                title="${spaceId}">
+                                ${spaceId}
+                            </button>`;
+                        }
+                    }
+
+                    lotHTML += '</div>';
+                    lotDiv.innerHTML = lotHTML;
+                    container.appendChild(lotDiv);
+                });
+
+                updateStatus();
+            } catch (error) {
+                console.error('Error loading parking spaces:', error);
+                isBackendConnected = false;
+                updateConnectionStatus();
+                initializeOfflineMode();
+            }
+        }
+
+        function initializeOfflineMode() {
+            const container = document.getElementById('parkingContainer');
+            container.innerHTML = '';
+
+            Object.keys(lots).forEach(lotLetter => {
+                const lot = lots[lotLetter];
+                const lotDiv = document.createElement('div');
+                lotDiv.className = 'parking-lot';
+
+                let lotHTML = `<div class="lot-title">${lot.name}</div>`;
+                lotHTML += '<div class="spaces-grid">';
+
+                for (let i = 1; i <= lot.spaces; i++) {
+                    const spaceId = `${lotLetter}${i}`;
+                    const isOccupied = Math.random() > 0.6;
+                    parkingStatus[spaceId] = { occupied: isOccupied };
+
+                    const statusClass = isOccupied ? 'occupied' : 'available';
+                    lotHTML += `<button class="parking-space ${statusClass}" 
+                        id="${spaceId}" 
+                        title="${spaceId}">
+                        ${spaceId}
+                    </button>`;
+                }
+
+                lotHTML += '</div>';
+                lotDiv.innerHTML = lotHTML;
+                container.appendChild(lotDiv);
+            });
+
+            updateStatus();
+        }
+
+        function showVehicleInfo(spaceId) {
+            const spaceData = parkingStatus[spaceId];
+            if (spaceData && spaceData.occupied) {
+                const vehicleData = spaceData.vehicle_data;
+                if (vehicleData) {
+                    const time = new Date(vehicleData.time).toLocaleString();
+                    
+                    document.getElementById('spaceIdDisplay').textContent = spaceId;
+                    document.getElementById('licensePlateDisplay').textContent = vehicleData.license_plate;
+                    document.getElementById('latitudeDisplay').textContent = vehicleData.latitude.toFixed(6);
+                    document.getElementById('longitudeDisplay').textContent = vehicleData.longitude.toFixed(6);
+                    document.getElementById('timeDisplay').textContent = time;
+                    
+                    document.getElementById('vehicleModal').style.display = 'block';
+                }
+            }
+        }
+
+        function closeModal() {
+            document.getElementById('vehicleModal').style.display = 'none';
+        }
+
+        // Close modal when clicking outside of it
+        window.onclick = function(event) {
+            const modal = document.getElementById('vehicleModal');
+            if (event.target == modal) {
+                modal.style.display = 'none';
+            }
+        }
+
+        function updateStatus() {
+            const occupied = Object.values(parkingStatus).filter(v => v.occupied).length;
+            const available = Object.values(parkingStatus).filter(v => !v.occupied).length;
+
+            document.getElementById('occupiedCount').textContent = occupied;
+            document.getElementById('availableCount').textContent = available;
+        }
+
+        function updateConnectionStatus() {
+            const statusElement = document.getElementById('connectionStatus');
+            if (isBackendConnected) {
+                statusElement.textContent = '✓ Connected to Backend';
+                statusElement.className = 'connection-status connected';
+            } else {
+                statusElement.textContent = '⚠ Offline Mode (Backend Unavailable)';
+                statusElement.className = 'connection-status disconnected';
+            }
+        }
+
+        function openTab(evt, tabName) {
+            const tabContents = document.querySelectorAll('.tab-content');
+            tabContents.forEach(tab => tab.classList.remove('active'));
+
+            const tabBtns = document.querySelectorAll('.tab-btn');
+            tabBtns.forEach(btn => btn.classList.remove('active'));
+
+            document.getElementById(tabName).classList.add('active');
+            evt.currentTarget.classList.add('active');
+        }
+
+        // Refresh parking data every 60 seconds (1 minute)
+        setInterval(initializeParkingLots, 60000);
+
+        // Initialize on page load
+        initializeParkingLots();
+    </script>
+</body>
+</html>
