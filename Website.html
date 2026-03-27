@@ -285,6 +285,48 @@
         .close-btn:hover {
             color: #f44336;
         }
+
+        /* OP Terminal styles - add below */
+        .video-window {
+            width: 100%;
+            max-width: 800px;
+            aspect-ratio: 1 / 1;
+            background: #000;
+            border: 2px solid #333;
+            margin: 20px auto 0;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #999;
+            font-size: 16px;
+        }
+
+        .terminal-controls {
+            display: flex;
+            justify-content: center;
+            gap: 16px;
+            margin: 16px auto 40px;
+        }
+
+        .jetson-btn {
+            padding: 12px 20px;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            font-weight: 700;
+            background: #667eea;
+            color: #fff;
+            box-shadow: 0 6px 18px rgba(102,126,234,0.25);
+            transition: transform 0.12s ease;
+        }
+
+        .jetson-btn:active { transform: translateY(1px); }
+
+        .jetson-btn.stop {
+            background: #f44336;
+            box-shadow: 0 6px 18px rgba(244,67,54,0.25);
+        }
     </style>
 </head>
 <body>
@@ -319,11 +361,21 @@
             </div>
         </div>
 
-        <!-- Tab 2: Analytics -->
+        <!-- Tab 2: OP Terminal -->
         <div id="tab2" class="tab-content">
             <div class="placeholder">
-                <h2>📊 Analytics Dashboard</h2>
-                <p>Coming soon...</p>
+                <h2>OP Terminal</h2>
+
+                <!-- blank square window where live feed will appear later -->
+                <div id="videoWindow" class="video-window">
+                    Live feed will appear here
+                </div>
+
+                <!-- controls for starting/stopping Jetson (wired later) -->
+                <div class="terminal-controls">
+                    <button id="startJetsonBtn" class="jetson-btn">Start Jetson</button>
+                    <button id="stopJetsonBtn" class="jetson-btn stop">Stop Jetson</button>
+                </div>
             </div>
         </div>
 
@@ -367,9 +419,7 @@
     <script>
         const lots = {
             'A': { name: 'Lot A', spaces: 10 },
-            'B': { name: 'Lot B', spaces: 10 },
-            'C': { name: 'Lot C', spaces: 10 },
-            'D': { name: 'Lot D', spaces: 10 }
+            'B': { name: 'Lot B', spaces: 10 }
         };
 
         let parkingStatus = {};
