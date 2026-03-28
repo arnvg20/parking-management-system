@@ -1,0 +1,4 @@
+{
+  "url": "http://10.24.21.85:5050/api/live-stream.mjpeg",
+  "mode": "mjpeg"
+}

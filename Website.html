@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Parking Management System</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <style>
         * {
             margin: 0;
@@ -87,68 +88,142 @@
             }
         }
 
-        /* Tab 1 - Parking Lot Styles */
-        .parking-container {
+        /* Tab 1 - Map Dashboard */
+        .dashboard-layout {
             display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 30px;
-            max-width: 1000px;
-            margin: 0 auto;
+            grid-template-columns: minmax(0, 1.6fr) minmax(260px, 0.8fr);
+            gap: 24px;
+            align-items: start;
         }
 
-        .parking-lot {
-            background: #f9f9f9;
-            border: 2px solid #ddd;
-            border-radius: 10px;
+        .map-panel,
+        .section-panel {
+            background: #f9fbff;
+            border: 1px solid #dde5f4;
+            border-radius: 18px;
             padding: 20px;
+            box-shadow: 0 18px 40px rgba(39, 65, 109, 0.08);
         }
 
-        .lot-title {
+        .panel-title {
             font-size: 24px;
-            font-weight: bold;
-            color: #333;
-            margin-bottom: 20px;
-            text-align: center;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
+            font-weight: 700;
+            color: #24344d;
+            margin-bottom: 8px;
         }
 
-        .spaces-grid {
-            display: grid;
-            grid-template-columns: repeat(5, 1fr);
-            gap: 10px;
+        .panel-copy {
+            color: #5e6c84;
+            margin-bottom: 18px;
+            line-height: 1.5;
         }
 
-        .parking-space {
-            aspect-ratio: 1;
-            border: 2px solid #333;
-            border-radius: 8px;
+        .map-legend {
             display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 18px;
+        }
+
+        .legend-chip {
+            display: inline-flex;
             align-items: center;
-            justify-content: center;
-            font-weight: bold;
+            gap: 8px;
+            padding: 8px 12px;
+            border-radius: 999px;
+            background: #eef3ff;
+            color: #34445f;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .legend-swatch {
+            width: 12px;
+            height: 12px;
+            border-radius: 999px;
+        }
+
+        .legend-swatch.available {
+            background: #2e7d32;
+        }
+
+        .legend-swatch.occupied {
+            background: #d32f2f;
+        }
+
+        .legend-swatch.section {
+            background: #1a73e8;
+        }
+
+        .lot-map {
+            height: 620px;
+            border-radius: 14px;
+            overflow: hidden;
+            border: 1px solid #d6deef;
+        }
+
+        .leaflet-container {
+            font-family: inherit;
+            background: #d7e3f4;
+        }
+
+        .leaflet-tooltip.parking-tooltip {
+            background: rgba(20, 31, 53, 0.9);
+            border: none;
+            color: white;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.22);
+            padding: 6px 10px;
+        }
+
+        .section-label {
+            background: transparent;
+            border: none;
+        }
+
+        .section-label span {
+            display: inline-block;
+            padding: 6px 10px;
+            border-radius: 999px;
+            background: rgba(26, 115, 232, 0.9);
+            color: white;
             font-size: 12px;
-            transition: all 0.3s ease;
-            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            box-shadow: 0 8px 18px rgba(17, 70, 142, 0.25);
         }
 
-        .parking-space.available {
-            background: #4caf50;
-            color: white;
-            cursor: not-allowed;
+        .section-summary {
+            display: grid;
+            gap: 14px;
         }
 
-        .parking-space.occupied {
-            background: #f44336;
-            color: white;
-            cursor: pointer;
+        .section-card {
+            border-radius: 14px;
+            border: 1px solid #d8e2f3;
+            background: white;
+            padding: 16px;
         }
 
-        .parking-space.occupied:hover {
-            transform: scale(1.05);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        .section-card h3 {
+            color: #233758;
+            font-size: 18px;
+            margin-bottom: 8px;
+        }
+
+        .section-meta {
+            color: #5e6c84;
+            line-height: 1.5;
+            font-size: 14px;
+        }
+
+        .section-next {
+            margin-top: 18px;
+            padding: 14px 16px;
+            border-radius: 14px;
+            background: linear-gradient(135deg, #eef4ff 0%, #f6f9ff 100%);
+            color: #42536d;
+            line-height: 1.5;
         }
 
         .status-bar {
@@ -179,6 +254,21 @@
 
         .status-color.occupied {
             background: #f44336;
+        }
+
+        @media (max-width: 900px) {
+            .dashboard-layout {
+                grid-template-columns: 1fr;
+            }
+
+            .lot-map {
+                height: 480px;
+            }
+
+            .status-bar {
+                flex-direction: column;
+                gap: 14px;
+            }
         }
 
         /* Tab 2 & 3 Placeholder */
@@ -302,11 +392,93 @@
             font-size: 16px;
         }
 
+        .video-window img,
+        .video-window video,
+        .video-window iframe {
+            width: 100%;
+            height: 100%;
+            border: 0;
+            object-fit: cover;
+            background: #000;
+        }
+
+        .video-placeholder {
+            padding: 24px;
+            text-align: center;
+            line-height: 1.5;
+        }
+
         .terminal-controls {
             display: flex;
             justify-content: center;
             gap: 16px;
             margin: 16px auto 40px;
+        }
+
+        .feed-share-card {
+            width: 100%;
+            max-width: 800px;
+            margin: 16px auto 20px;
+            padding: 16px 18px;
+            text-align: left;
+            border-radius: 12px;
+            border: 1px solid #d8e2f3;
+            background: #f8fbff;
+            color: #44536b;
+        }
+
+        .feed-share-title {
+            font-size: 16px;
+            font-weight: 700;
+            color: #24344d;
+            margin-bottom: 8px;
+        }
+
+        .feed-share-copy {
+            line-height: 1.5;
+            margin-top: 8px;
+        }
+
+        .feed-code {
+            display: block;
+            margin-top: 10px;
+            padding: 10px 12px;
+            border-radius: 10px;
+            background: #152238;
+            color: #f7fbff;
+            font-family: 'SFMono-Regular', Consolas, monospace;
+            font-size: 13px;
+            overflow-x: auto;
+        }
+
+        .feed-status {
+            min-height: 24px;
+            margin-top: 12px;
+            font-weight: 600;
+            color: #555;
+        }
+
+        .feed-status.success {
+            color: #2e7d32;
+        }
+
+        .feed-status.error {
+            color: #c62828;
+        }
+
+        .jetson-status {
+            min-height: 24px;
+            margin-top: 12px;
+            font-weight: 600;
+            color: #555;
+        }
+
+        .jetson-status.success {
+            color: #2e7d32;
+        }
+
+        .jetson-status.error {
+            color: #c62828;
         }
 
         .jetson-btn {
@@ -327,6 +499,11 @@
             background: #f44336;
             box-shadow: 0 6px 18px rgba(244,67,54,0.25);
         }
+
+        .jetson-btn:disabled {
+            opacity: 0.7;
+            cursor: wait;
+        }
     </style>
 </head>
 <body>
@@ -345,7 +522,31 @@
 
         <!-- Tab 1: Parking Lots -->
         <div id="tab1" class="tab-content active">
-            <div class="parking-container" id="parkingContainer"></div>
+            <div class="dashboard-layout">
+                <div class="map-panel">
+                    <div class="panel-title">Lot Overlay</div>
+                    <div class="panel-copy">
+                        Parking sections are drawn from your Google Earth corner coordinates, with each space generated as a stall polygon inside its section.
+                    </div>
+                    <div class="map-legend">
+                        <div class="legend-chip"><span class="legend-swatch section"></span>Section boundary</div>
+                        <div class="legend-chip"><span class="legend-swatch available"></span>Available space</div>
+                        <div class="legend-chip"><span class="legend-swatch occupied"></span>Occupied space</div>
+                    </div>
+                    <div id="lotMap" class="lot-map"></div>
+                </div>
+
+                <div class="section-panel">
+                    <div class="panel-title">Section Summary</div>
+                    <div class="panel-copy">
+                        Starting with Sections A and B. Send the next two section polygons and I can extend the same map immediately.
+                    </div>
+                    <div id="sectionSummary" class="section-summary"></div>
+                    <div class="section-next">
+                        Current assumption: each section contains 10 evenly spaced stalls generated from the four corners you provided.
+                    </div>
+                </div>
+            </div>
             <div class="status-bar">
                 <div class="status-item">
                     <span class="status-color available"></span>
@@ -371,11 +572,27 @@
                     Live feed will appear here
                 </div>
 
+                <div class="feed-share-card">
+                    <div class="feed-share-title">Remote Feed Config</div>
+                    <div class="feed-share-copy">
+                        Expose this app publicly, then your friend can update the square display by POSTing a feed URL here:
+                    </div>
+                    <code id="feedConfigEndpoint" class="feed-code">Loading endpoint...</code>
+                    <div class="feed-share-copy">
+                        JSON body: {"url":"http://your-feed-link","mode":"mjpeg|video|iframe"}
+                    </div>
+                    <div id="videoFeedStatus" class="feed-status">No live video feed configured yet.</div>
+                    <div class="feed-share-copy">Current feed: <span id="currentFeedUrl">None</span></div>
+                    <div class="feed-share-copy">Current mode: <span id="currentFeedMode">mjpeg</span></div>
+                </div>
+
                 <!-- controls for starting/stopping Jetson (wired later) -->
                 <div class="terminal-controls">
                     <button id="startJetsonBtn" class="jetson-btn">Start Jetson</button>
                     <button id="stopJetsonBtn" class="jetson-btn stop">Stop Jetson</button>
                 </div>
+
+                <div id="jetsonStatus" class="jetson-status">Jetson controls ready.</div>
             </div>
         </div>
 
@@ -416,97 +633,170 @@
         </div>
     </div>
 
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        const lots = {
-            'A': { name: 'Lot A', spaces: 10 },
-            'B': { name: 'Lot B', spaces: 10 }
-        };
-
         let parkingStatus = {};
-        const API_URL = 'http://localhost:5000/api';
+        let mapData = null;
+        let parkingMap = null;
+        let baseLayer = null;
+        let lotOutlineLayer = null;
+        let sectionLayerGroup = null;
+        let sectionLabelGroup = null;
+        let spaceLayerGroup = null;
+        let activeVideoFeedSignature = '';
+        const API_URL = `${window.location.origin}/api`;
         let isBackendConnected = false;
 
-        async function initializeParkingLots() {
-            const container = document.getElementById('parkingContainer');
-            container.innerHTML = '';
+        function toLatLngs(points) {
+            return points.map(point => [point.latitude, point.longitude]);
+        }
 
+        function spaceStyle(spaceData) {
+            return {
+                color: '#ffffff',
+                weight: 1,
+                fillColor: spaceData.occupied ? '#d32f2f' : '#2e7d32',
+                fillOpacity: 0.78
+            };
+        }
+
+        function createMapIfNeeded() {
+            if (parkingMap) {
+                return;
+            }
+
+            parkingMap = L.map('lotMap', {
+                zoomControl: true,
+                attributionControl: true
+            });
+
+            baseLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxNativeZoom: 19,
+                maxZoom: 22,
+                attribution: '&copy; OpenStreetMap contributors'
+            }).addTo(parkingMap);
+
+            sectionLayerGroup = L.layerGroup().addTo(parkingMap);
+            sectionLabelGroup = L.layerGroup().addTo(parkingMap);
+            spaceLayerGroup = L.layerGroup().addTo(parkingMap);
+        }
+
+        function renderLotBounds(bounds) {
+            if (lotOutlineLayer) {
+                lotOutlineLayer.remove();
+            }
+
+            lotOutlineLayer = L.polygon(toLatLngs(bounds), {
+                color: '#546e7a',
+                weight: 1,
+                dashArray: '6 6',
+                fillOpacity: 0
+            }).addTo(parkingMap);
+
+            parkingMap.fitBounds(lotOutlineLayer.getBounds(), {
+                padding: [24, 24]
+            });
+        }
+
+        function renderSections(sections) {
+            sectionLayerGroup.clearLayers();
+            sectionLabelGroup.clearLayers();
+
+            Object.entries(sections).forEach(([sectionId, sectionData]) => {
+                L.polygon(toLatLngs(sectionData.corners), {
+                    color: '#1a73e8',
+                    weight: 2,
+                    fillColor: '#4d90fe',
+                    fillOpacity: 0.08
+                }).addTo(sectionLayerGroup);
+
+                L.marker(
+                    [sectionData.center.latitude, sectionData.center.longitude],
+                    {
+                        icon: L.divIcon({
+                            className: 'section-label',
+                            html: `<span>${sectionData.name}</span>`
+                        })
+                    }
+                ).addTo(sectionLabelGroup);
+            });
+        }
+
+        function renderSpaces(spaces) {
+            spaceLayerGroup.clearLayers();
+
+            Object.entries(spaces).forEach(([spaceId, spaceData]) => {
+                const polygon = L.polygon(toLatLngs(spaceData.polygon), spaceStyle(spaceData))
+                    .addTo(spaceLayerGroup)
+                    .bindTooltip(
+                        `${spaceId} · ${spaceData.occupied ? 'Occupied' : 'Available'}`,
+                        {
+                            direction: 'top',
+                            sticky: true,
+                            className: 'parking-tooltip'
+                        }
+                    );
+
+                if (spaceData.occupied) {
+                    polygon.on('click', () => showVehicleInfo(spaceId));
+                }
+            });
+        }
+
+        function renderSectionSummary(sections, spaces) {
+            const summary = document.getElementById('sectionSummary');
+            const cards = Object.entries(sections)
+                .sort(([leftId], [rightId]) => leftId.localeCompare(rightId))
+                .map(([sectionId, sectionData]) => {
+                    const sectionSpaces = Object.entries(spaces).filter(([, space]) => space.section_id === sectionId);
+                    const occupied = sectionSpaces.filter(([, space]) => space.occupied).length;
+                    const total = sectionSpaces.length;
+
+                    return `
+                        <div class="section-card">
+                            <h3>${sectionData.name}</h3>
+                            <div class="section-meta">
+                                ${occupied} occupied / ${total - occupied} available<br>
+                                ${total} mapped stalls
+                            </div>
+                        </div>
+                    `;
+                });
+
+            summary.innerHTML = cards.join('');
+        }
+
+        async function initializeParkingLots() {
             try {
-                const response = await fetch(`${API_URL}/parking-spaces`);
-                const spaces = await response.json();
-                parkingStatus = spaces;
+                const response = await fetch(`${API_URL}/map-data`);
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.message || `Failed to load map data (${response.status})`);
+                }
+
+                mapData = data;
+                parkingStatus = data.spaces;
                 isBackendConnected = true;
                 updateConnectionStatus();
 
-                Object.keys(lots).forEach(lotLetter => {
-                    const lot = lots[lotLetter];
-                    const lotDiv = document.createElement('div');
-                    lotDiv.className = 'parking-lot';
-
-                    let lotHTML = `<div class="lot-title">${lot.name}</div>`;
-                    lotHTML += '<div class="spaces-grid">';
-
-                    for (let i = 1; i <= lot.spaces; i++) {
-                        const spaceId = `${lotLetter}${i}`;
-                        const spaceData = spaces[spaceId];
-                        
-                        if (spaceData) {
-                            const statusClass = spaceData.occupied ? 'occupied' : 'available';
-                            const isClickable = spaceData.occupied ? `onclick="showVehicleInfo('${spaceId}')"` : '';
-                            
-                            lotHTML += `<button class="parking-space ${statusClass}" 
-                                id="${spaceId}" 
-                                ${isClickable}
-                                title="${spaceId}">
-                                ${spaceId}
-                            </button>`;
-                        }
-                    }
-
-                    lotHTML += '</div>';
-                    lotDiv.innerHTML = lotHTML;
-                    container.appendChild(lotDiv);
-                });
-
+                createMapIfNeeded();
+                renderLotBounds(data.lot_bounds);
+                renderSections(data.sections);
+                renderSpaces(data.spaces);
+                renderSectionSummary(data.sections, data.spaces);
                 updateStatus();
             } catch (error) {
-                console.error('Error loading parking spaces:', error);
+                console.error('Error loading parking map:', error);
                 isBackendConnected = false;
                 updateConnectionStatus();
-                initializeOfflineMode();
+                document.getElementById('sectionSummary').innerHTML = `
+                    <div class="section-card">
+                        <h3>Map Unavailable</h3>
+                        <div class="section-meta">${error.message}</div>
+                    </div>
+                `;
             }
-        }
-
-        function initializeOfflineMode() {
-            const container = document.getElementById('parkingContainer');
-            container.innerHTML = '';
-
-            Object.keys(lots).forEach(lotLetter => {
-                const lot = lots[lotLetter];
-                const lotDiv = document.createElement('div');
-                lotDiv.className = 'parking-lot';
-
-                let lotHTML = `<div class="lot-title">${lot.name}</div>`;
-                lotHTML += '<div class="spaces-grid">';
-
-                for (let i = 1; i <= lot.spaces; i++) {
-                    const spaceId = `${lotLetter}${i}`;
-                    const isOccupied = Math.random() > 0.6;
-                    parkingStatus[spaceId] = { occupied: isOccupied };
-
-                    const statusClass = isOccupied ? 'occupied' : 'available';
-                    lotHTML += `<button class="parking-space ${statusClass}" 
-                        id="${spaceId}" 
-                        title="${spaceId}">
-                        ${spaceId}
-                    </button>`;
-                }
-
-                lotHTML += '</div>';
-                lotDiv.innerHTML = lotHTML;
-                container.appendChild(lotDiv);
-            });
-
-            updateStatus();
         }
 
         function showVehicleInfo(spaceId) {
@@ -545,6 +835,7 @@
 
             document.getElementById('occupiedCount').textContent = occupied;
             document.getElementById('availableCount').textContent = available;
+            document.getElementById('totalCount').textContent = occupied + available;
         }
 
         function updateConnectionStatus() {
@@ -558,6 +849,122 @@
             }
         }
 
+        function updateFeedConfigEndpoint() {
+            document.getElementById('feedConfigEndpoint').textContent = `${window.location.origin}/api/video-feed/config`;
+        }
+
+        function updateVideoFeedStatus(message, type = '') {
+            const statusElement = document.getElementById('videoFeedStatus');
+            statusElement.textContent = message;
+            statusElement.className = `feed-status${type ? ` ${type}` : ''}`;
+        }
+
+        function renderVideoPlaceholder(message) {
+            const videoWindow = document.getElementById('videoWindow');
+            videoWindow.innerHTML = `<div class="video-placeholder">${message}</div>`;
+        }
+
+        function renderVideoFeed(feedConfig) {
+            const videoWindow = document.getElementById('videoWindow');
+            const feedUrl = (feedConfig.url || '').trim();
+            const feedMode = (feedConfig.mode || 'mjpeg').trim().toLowerCase();
+
+            document.getElementById('currentFeedUrl').textContent = feedUrl || 'None';
+            document.getElementById('currentFeedMode').textContent = feedMode;
+
+            if (!feedUrl) {
+                renderVideoPlaceholder('No live video feed configured yet. Once a public feed URL is posted to this app, it will appear here automatically.');
+                updateVideoFeedStatus('Waiting for a public feed URL.', '');
+                return;
+            }
+
+            const proxyUrl = `${API_URL}/video-feed/proxy?ts=${Date.now()}`;
+
+            if (feedMode === 'iframe') {
+                videoWindow.innerHTML = `<iframe src="${feedUrl}" allow="autoplay; fullscreen"></iframe>`;
+            } else if (feedMode === 'video') {
+                videoWindow.innerHTML = `<video src="${proxyUrl}" autoplay muted playsinline controls></video>`;
+            } else {
+                videoWindow.innerHTML = `<img src="${proxyUrl}" alt="Live video feed">`;
+            }
+
+            updateVideoFeedStatus(`Live feed ready in ${feedMode} mode.`, 'success');
+        }
+
+        async function refreshVideoFeedConfig(forceRender = false) {
+            updateFeedConfigEndpoint();
+
+            try {
+                const response = await fetch(`${API_URL}/video-feed/config`, {
+                    cache: 'no-store'
+                });
+                const feedConfig = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(feedConfig.error || `Failed to load feed config (${response.status})`);
+                }
+
+                const feedSignature = JSON.stringify(feedConfig);
+                if (forceRender || feedSignature !== activeVideoFeedSignature) {
+                    activeVideoFeedSignature = feedSignature;
+                    renderVideoFeed(feedConfig);
+                }
+            } catch (error) {
+                console.error('Error loading video feed config:', error);
+                updateVideoFeedStatus(`Video feed unavailable: ${error.message}`, 'error');
+
+                if (!activeVideoFeedSignature || forceRender) {
+                    renderVideoPlaceholder('Unable to load the live feed configuration.');
+                }
+            }
+        }
+
+        function setJetsonButtonsDisabled(disabled) {
+            document.getElementById('startJetsonBtn').disabled = disabled;
+            document.getElementById('stopJetsonBtn').disabled = disabled;
+        }
+
+        function updateJetsonStatus(message, type = '') {
+            const statusElement = document.getElementById('jetsonStatus');
+            statusElement.textContent = message;
+            statusElement.className = `jetson-status${type ? ` ${type}` : ''}`;
+        }
+
+        async function sendJetsonCommand(command) {
+            setJetsonButtonsDisabled(true);
+            updateJetsonStatus(`Sending ${command === 'on' ? 'start' : 'stop'} command to Jetson...`);
+
+            try {
+                const response = await fetch(`${API_URL}/system/${command}`, {
+                    method: 'POST'
+                });
+
+                const result = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(result.message || `Request failed with status ${response.status}`);
+                }
+
+                updateJetsonStatus(
+                    command === 'on' ? 'Jetson start command sent successfully.' : 'Jetson stop command sent successfully.',
+                    'success'
+                );
+            } catch (error) {
+                console.error(`Jetson ${command} request failed:`, error);
+                updateJetsonStatus(`Jetson command failed: ${error.message}`, 'error');
+            } finally {
+                setJetsonButtonsDisabled(false);
+            }
+        }
+
+        document.getElementById('startJetsonBtn').addEventListener('click', () => {
+            sendJetsonCommand('on');
+        });
+
+        document.getElementById('stopJetsonBtn').addEventListener('click', () => {
+            sendJetsonCommand('off');
+        });
+
         function openTab(evt, tabName) {
             const tabContents = document.querySelectorAll('.tab-content');
             tabContents.forEach(tab => tab.classList.remove('active'));
@@ -567,13 +974,19 @@
 
             document.getElementById(tabName).classList.add('active');
             evt.currentTarget.classList.add('active');
+
+            if (tabName === 'tab1' && parkingMap) {
+                window.setTimeout(() => parkingMap.invalidateSize(), 50);
+            }
         }
 
         // Refresh parking data every 60 seconds (1 minute)
         setInterval(initializeParkingLots, 60000);
+        setInterval(refreshVideoFeedConfig, 5000);
 
         // Initialize on page load
         initializeParkingLots();
+        refreshVideoFeedConfig(true);
     </script>
 </body>
 </html>
