@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Capstone Live Stream Monitor</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="page-shell">
+        <header class="hero">
+            <div>
+                <p class="eyebrow">Capstone Live Ops</p>
+                <h1>Low-Latency Stream Monitor</h1>
+                <p class="hero-copy">
+                    WebRTC playback from MediaMTX, with telemetry delivered separately over WebSocket.
+                </p>
+            </div>
+            <div class="hero-pills">
+                <span class="status-pill" id="connection-pill" data-tone="loading">Connecting</span>
+                <span class="status-pill" id="telemetry-pill" data-tone="idle">Telemetry waiting</span>
+            </div>
+        </header>
+
+        <main class="layout">
+            <section class="card video-card">
+                <div class="card-header">
+                    <div>
+                        <p class="section-label">Live Video</p>
+                        <h2>WebRTC player</h2>
+                        <p class="section-copy">
+                            The browser talks to this website service for configuration and telemetry, while MediaMTX handles the media plane.
+                        </p>
+                    </div>
+                    <button class="ghost-button" id="reconnect-button" type="button">Reconnect stream</button>
+                </div>
+
+                <div class="video-frame">
+                    <video id="live-video" autoplay muted playsinline></video>
+                    <div class="video-overlay" id="video-overlay">
+                        <div class="spinner" aria-hidden="true"></div>
+                        <p class="overlay-title" id="overlay-title">Starting live stream</p>
+                        <p class="overlay-copy" id="overlay-copy">Negotiating a WebRTC session with the backend proxy.</p>
+                    </div>
+                </div>
+
+                <div class="stats-grid">
+                    <article class="stat-tile">
+                        <span class="stat-label">Connection State</span>
+                        <strong class="stat-value" id="detail-connection">Connecting</strong>
+                    </article>
+                    <article class="stat-tile">
+                        <span class="stat-label">Playback State</span>
+                        <strong class="stat-value" id="detail-playback">Idle</strong>
+                    </article>
+                    <article class="stat-tile">
+                        <span class="stat-label">Stream Path</span>
+                        <strong class="stat-value" id="detail-path">/mystream</strong>
+                    </article>
+                    <article class="stat-tile">
+                        <span class="stat-label">Last Event</span>
+                        <strong class="stat-value" id="detail-event">Page loaded</strong>
+                    </article>
+                </div>
+            </section>
+
+            <aside class="side-stack">
+                <section class="card operator-card">
+                    <div class="card-header compact">
+                        <div>
+                            <p class="section-label">Operator Controls</p>
+                            <h2>Jetson command queue</h2>
+                        </div>
+                    </div>
+                    <p class="section-copy">
+                        These buttons enqueue the existing Jetson commands without touching the old MJPEG live-frame path.
+                    </p>
+
+                    <dl class="telemetry-grid compact-grid">
+                        <div class="telemetry-row">
+                            <dt>Device</dt>
+                            <dd id="device-id-value">jetson-01</dd>
+                        </div>
+                        <div class="telemetry-row">
+                            <dt>Device State</dt>
+                            <dd id="device-online-value">Unknown</dd>
+                        </div>
+                        <div class="telemetry-row">
+                            <dt>Camera State</dt>
+                            <dd id="camera-state-value">Unknown</dd>
+                        </div>
+                        <div class="telemetry-row">
+                            <dt>Pending Commands</dt>
+                            <dd id="pending-commands-value">0</dd>
+                        </div>
+                    </dl>
+
+                    <div class="button-row">
+                        <button class="ghost-button" id="camera-on-button" type="button">Camera On</button>
+                        <button class="ghost-button" id="capture-image-button" type="button">Capture Image</button>
+                        <button class="ghost-button" id="camera-off-button" type="button">Camera Off</button>
+                    </div>
+
+                    <p class="feedback-text" id="command-feedback">Waiting for operator action.</p>
+                </section>
+
+                <section class="card telemetry-card">
+                    <div class="card-header compact">
+                        <div>
+                            <p class="section-label">Telemetry</p>
+                            <h2>Separate data feed</h2>
+                        </div>
+                    </div>
+                    <p class="section-copy">
+                        These values arrive independently from the video stream and can be fed from any backend source.
+                    </p>
+
+                    <dl class="telemetry-grid">
+                        <div class="telemetry-row">
+                            <dt>GPS Latitude</dt>
+                            <dd id="telemetry-latitude">--</dd>
+                        </div>
+                        <div class="telemetry-row">
+                            <dt>GPS Longitude</dt>
+                            <dd id="telemetry-longitude">--</dd>
+                        </div>
+                        <div class="telemetry-row">
+                            <dt>Detected Plate</dt>
+                            <dd id="telemetry-plate">--</dd>
+                        </div>
+                        <div class="telemetry-row">
+                            <dt>Confidence</dt>
+                            <dd id="telemetry-confidence">--</dd>
+                        </div>
+                        <div class="telemetry-row">
+                            <dt>Timestamp</dt>
+                            <dd id="telemetry-timestamp">--</dd>
+                        </div>
+                        <div class="telemetry-row">
+                            <dt>Robot Status</dt>
+                            <dd id="telemetry-status">--</dd>
+                        </div>
+                    </dl>
+                </section>
+
+                <section class="card notes-card">
+                    <p class="section-label">How This Demo Works</p>
+                    <ul class="notes-list">
+                        <li>The backend serves the page and proxies WHEP signaling at the same origin.</li>
+                        <li>The browser never uses JPEG refresh or MJPEG fallback here.</li>
+                        <li>Automatic reconnect is enabled for both the stream session and telemetry socket.</li>
+                    </ul>
+                </section>
+            </aside>
+        </main>
+    </div>
+
+    <script defer src="/static/webrtc-player.js"></script>
+    <script defer src="/static/app.js"></script>
+</body>
+</html>
