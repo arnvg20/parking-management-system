@@ -38,7 +38,7 @@ python WebPageRun.py
 5. Open the page in your browser:
 
 ```text
-http://YOUR_EC2_PUBLIC_IP_OR_DOMAIN:8000
+http://YOUR_EC2_PUBLIC_IP_OR_DOMAIN:5000
 ```
 
 6. For Windows, you can also use:
@@ -50,7 +50,7 @@ http://YOUR_EC2_PUBLIC_IP_OR_DOMAIN:8000
 ## Environment variables
 
 - `HOST`: bind address for the website backend. Use `0.0.0.0` on AWS.
-- `PORT`: website backend port. Default is `8000`.
+- `PORT`: website backend port. Default is `5000`.
 - `MEDIA_MTX_BASE_URL`: internal MediaMTX WHEP HTTP address. If MediaMTX runs on the same EC2 instance, use `http://127.0.0.1:8889`.
 - `MEDIA_MTX_STREAM_PATH`: MediaMTX stream path name. Default is `jetson-01`.
 - `DEFAULT_DEVICE_ID`: website-side device ID for command queueing. Default is `jetson-01`.
@@ -66,7 +66,7 @@ Use `mediamtx.sample.yml` as your starting point. The important AWS-specific det
 
 Recommended AWS security group rules:
 
-- Allow `8000/tcp` for the website backend, or put it behind Nginx on `80/443`.
+- Allow `5000/tcp` for the website backend, or put it behind Nginx on `80/443`.
 - Allow `1935/tcp` for Jetson RTMP ingest into MediaMTX.
 - Allow `8189/udp` for WebRTC media.
 - Allow `8189/tcp` only if you enable the TCP fallback in MediaMTX.
@@ -84,7 +84,7 @@ The browser connects to:
 Your telemetry producer should send JSON to:
 
 ```bash
-curl -X POST http://YOUR_EC2_PUBLIC_IP_OR_DOMAIN:8000/api/telemetry \
+curl -X POST http://YOUR_EC2_PUBLIC_IP_OR_DOMAIN:5000/api/telemetry \
   -H "Content-Type: application/json" \
   -H "X-Telemetry-Key: dev-telemetry-token" \
   -d "{\"latitude\":43.6532,\"longitude\":-79.3832,\"detected_plate\":\"ABC123\",\"confidence\":0.94,\"timestamp\":\"2026-03-30T18:00:00Z\",\"robot_status\":\"Patrolling\"}"

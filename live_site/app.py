@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
+import queue
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -16,11 +19,18 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend_state import BackendState
-from Tab1 import find_matching_space, parking_spaces
+from Tab1 import (
+    environmental_detections,
+    find_matching_space,
+    load_sample_vehicles,
+    lot_bounds,
+    parking_sections,
+    parking_spaces,
+)
 
 from .config import Settings
 from .mediamtx import (
@@ -37,8 +47,10 @@ settings = Settings.from_env()
 telemetry_hub = TelemetryHub()
 demo_publisher = DemoTelemetryPublisher(telemetry_hub, settings)
 WHEP_PROXY_PREFIX = "/api/webrtc"
+BASE_DIR = Path(__file__).resolve().parent.parent
 SUPPORTED_COMMANDS = {"camera_on", "camera_off", "capture_image"}
 MAX_COMMAND_WAIT_SECONDS = 25
+load_sample_vehicles()
 state = BackendState(
     parking_spaces,
     find_matching_space,
@@ -122,9 +134,46 @@ def _validate_command_name(command_name: str) -> str:
     return command_name
 
 
+def _serialize_point(point: Any) -> dict[str, float | None]:
+    if isinstance(point, (list, tuple)) and len(point) >= 2:
+        return {"latitude": point[0], "longitude": point[1]}
+    return {
+        "latitude": point.get("latitude"),
+        "longitude": point.get("longitude"),
+    }
+
+
+def _serialize_detection(detection: dict[str, Any], fallback_id: str) -> dict[str, Any]:
+    point = _serialize_point(detection)
+    detection_id = detection.get("id") or fallback_id
+    label = detection.get("label") or detection.get("name") or detection_id
+    payload = {
+        "id": detection_id,
+        "label": label,
+        "latitude": point["latitude"],
+        "longitude": point["longitude"],
+    }
+    kind = detection.get("kind")
+    if kind:
+        payload["kind"] = kind
+    return payload
+
+
+def _serialize_space(space_id: str, values: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "space_id": space_id,
+        "section_id": values.get("section_id"),
+        "latitude": values.get("latitude"),
+        "longitude": values.get("longitude"),
+        "polygon": [_serialize_point(point) for point in values.get("polygon", [])],
+        "occupied": values.get("occupied", False),
+        "vehicle_data": values.get("vehicle_data"),
+    }
+
+
 @app.get("/", include_in_schema=False)
 async def index() -> FileResponse:
-    return FileResponse(settings.static_dir / "index.html")
+    return FileResponse(BASE_DIR / "Website.html")
 
 
 @app.get("/favicon.ico", include_in_schema=False)
@@ -157,6 +206,41 @@ async def health_check() -> dict[str, Any]:
 @app.get("/api/system/state")
 async def get_system_state() -> dict[str, Any]:
     return await run_in_threadpool(state.get_system_snapshot)
+
+
+@app.get("/api/parking-spaces")
+async def get_parking_spaces() -> dict[str, Any]:
+    spaces = await run_in_threadpool(state.get_parking_spaces)
+    return {space_id: _serialize_space(space_id, values) for space_id, values in spaces.items()}
+
+
+@app.get("/api/map-data")
+async def get_map_data() -> dict[str, Any]:
+    spaces = await run_in_threadpool(state.get_parking_spaces)
+    sections: dict[str, Any] = {}
+    for section_id, values in parking_sections.items():
+        sections[section_id] = {
+            "name": values["name"],
+            "spaces": values["spaces"],
+            "center": values["center"],
+            "corners": [_serialize_point(point) for point in values["corners"]],
+        }
+
+    return {
+        "lot_bounds": [_serialize_point(point) for point in lot_bounds],
+        "sections": sections,
+        "spaces": {space_id: _serialize_space(space_id, values) for space_id, values in spaces.items()},
+        "environmental_detections": {
+            "cracks": [
+                _serialize_detection(detection, f"crack-{index}")
+                for index, detection in enumerate(environmental_detections.get("cracks", []), start=1)
+            ],
+            "signs": [
+                _serialize_detection(detection, f"sign-{index}")
+                for index, detection in enumerate(environmental_detections.get("signs", []), start=1)
+            ],
+        },
+    }
 
 
 @app.get("/api/devices")
@@ -346,6 +430,32 @@ async def telemetry_socket(websocket: WebSocket) -> None:
         pass
     finally:
         await telemetry_hub.disconnect(websocket)
+
+
+@app.get("/api/events")
+async def event_stream() -> StreamingResponse:
+    subscriber = state.subscribe()
+
+    def generate():
+        yield "retry: 3000\n\n"
+        try:
+            while True:
+                try:
+                    event = subscriber.get(timeout=20)
+                    yield f"event: state.changed\ndata: {json.dumps(event)}\n\n"
+                except queue.Empty:
+                    yield ": keep-alive\n\n"
+        finally:
+            state.unsubscribe(subscriber)
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-store",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.api_route(

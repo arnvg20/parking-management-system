@@ -44,7 +44,7 @@ class Settings:
     def from_env(cls) -> "Settings":
         return cls(
             host=os.getenv("HOST", "0.0.0.0"),
-            port=int(os.getenv("PORT", "8000")),
+            port=int(os.getenv("PORT", "5000")),
             reload=_env_flag("RELOAD", False),
             media_mtx_base_url=os.getenv("MEDIA_MTX_BASE_URL", "http://127.0.0.1:8889").rstrip("/"),
             media_mtx_stream_path=_normalize_stream_path(os.getenv("MEDIA_MTX_STREAM_PATH", "jetson-01")),

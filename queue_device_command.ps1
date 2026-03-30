@@ -1,7 +1,7 @@
 param(
     [Parameter(Mandatory = $true)]
     [string]$Command,
-    [string]$BackendUrl = "http://127.0.0.1:8000",
+    [string]$BackendUrl = "http://127.0.0.1:5000",
     [string]$DeviceId = "jetson-01"
 )
 

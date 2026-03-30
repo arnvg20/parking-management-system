@@ -1,6 +1,6 @@
 param(
     [string]$Host = "0.0.0.0",
-    [int]$Port = 8000,
+    [int]$Port = 5000,
     [string]$MediaMtxBaseUrl = "http://127.0.0.1:8889",
     [string]$MediaMtxStreamPath = "jetson-01",
     [string]$DefaultDeviceId = "jetson-01",

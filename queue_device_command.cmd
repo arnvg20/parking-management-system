@@ -8,7 +8,7 @@ if "%COMMAND_NAME%"=="" (
 )
 
 set "BACKEND_URL=%~2"
-if "%BACKEND_URL%"=="" set "BACKEND_URL=http://127.0.0.1:8000"
+if "%BACKEND_URL%"=="" set "BACKEND_URL=http://127.0.0.1:5000"
 
 set "DEVICE_ID=%~3"
 if "%DEVICE_ID%"=="" set "DEVICE_ID=jetson-01"

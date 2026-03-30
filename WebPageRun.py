@@ -19,6 +19,6 @@ if __name__ == "__main__":
     uvicorn.run(
         "live_site.app:app",
         host=os.getenv("HOST", "0.0.0.0"),
-        port=int(os.getenv("PORT", "8000")),
+        port=int(os.getenv("PORT", "5000")),
         reload=_reload_enabled(),
     )

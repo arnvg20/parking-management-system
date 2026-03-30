@@ -5,7 +5,7 @@ set "HOST=%~1"
 if "%HOST%"=="" set "HOST=0.0.0.0"
 
 set "PORT=%~2"
-if "%PORT%"=="" set "PORT=8000"
+if "%PORT%"=="" set "PORT=5000"
 
 set "MEDIA_MTX_BASE_URL=%~3"
 if "%MEDIA_MTX_BASE_URL%"=="" set "MEDIA_MTX_BASE_URL=http://127.0.0.1:8889"

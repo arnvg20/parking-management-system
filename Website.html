@@ -20,7 +20,7 @@
         }
 
         .container {
-            max-width: 1280px;
+            max-width: 1500px;
             margin: 0 auto;
             background: white;
             border-radius: 15px;
@@ -116,6 +116,12 @@
             }
             to {
                 opacity: 1;
+            }
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
             }
         }
 
@@ -395,7 +401,13 @@
         }
 
         .operator-layout {
-            grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+            grid-template-columns: minmax(0, 2.8fr) minmax(320px, 0.85fr);
+            align-items: start;
+        }
+
+        .operator-stack {
+            display: grid;
+            gap: 24px;
             align-items: start;
         }
 
@@ -474,6 +486,12 @@
             box-shadow: 0 6px 18px rgba(244, 67, 54, 0.25);
         }
 
+        .jetson-btn.secondary {
+            background: rgba(255, 255, 255, 0.12);
+            border: 1px solid rgba(255, 255, 255, 0.22);
+            box-shadow: none;
+        }
+
         .jetson-btn:active {
             transform: translateY(1px);
         }
@@ -507,7 +525,7 @@
             display: flex;
             justify-content: space-between;
             gap: 12px;
-            align-items: center;
+            align-items: flex-start;
             margin-bottom: 16px;
         }
 
@@ -517,7 +535,7 @@
 
         .video-window {
             width: 100%;
-            min-height: 460px;
+            min-height: 600px;
             background: #000;
             border: 2px solid rgba(255, 255, 255, 0.08);
             border-radius: 14px;
@@ -525,6 +543,7 @@
             align-items: center;
             justify-content: center;
             overflow: hidden;
+            position: relative;
         }
 
         .video-placeholder {
@@ -534,11 +553,90 @@
             color: rgba(255, 255, 255, 0.82);
         }
 
+        .video-placeholder.overlay-active {
+            position: absolute;
+            inset: 0;
+            display: grid;
+            place-items: center;
+            align-content: center;
+            background: linear-gradient(180deg, rgba(8, 13, 25, 0.22), rgba(8, 13, 25, 0.72));
+            transition: opacity 0.22s ease, visibility 0.22s ease;
+        }
+
+        .video-placeholder.overlay-active.hidden {
+            opacity: 0;
+            visibility: hidden;
+        }
+
+        .video-spinner {
+            width: 52px;
+            height: 52px;
+            margin: 0 auto 18px;
+            border-radius: 999px;
+            border: 4px solid rgba(255, 255, 255, 0.2);
+            border-top-color: rgba(255, 255, 255, 0.94);
+            animation: spin 0.9s linear infinite;
+        }
+
+        .overlay-title {
+            font-size: 18px;
+            font-weight: 700;
+        }
+
+        .overlay-copy {
+            margin-top: 8px;
+            max-width: 42ch;
+        }
+
         .live-stream {
             width: 100%;
             height: 100%;
             object-fit: contain;
             background: #000;
+        }
+
+        .stream-stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 14px;
+            margin-top: 18px;
+        }
+
+        .stream-stat {
+            padding: 14px;
+            border-radius: 14px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .stream-stat-value {
+            color: white;
+            font-size: 16px;
+            font-weight: 700;
+            margin-top: 8px;
+            line-height: 1.45;
+        }
+
+        .telemetry-summary {
+            display: grid;
+            gap: 10px;
+        }
+
+        .telemetry-line {
+            display: flex;
+            justify-content: space-between;
+            gap: 16px;
+            align-items: center;
+            padding: 12px 14px;
+            border-radius: 12px;
+            background: white;
+            border: 1px solid #d8e2f3;
+            color: #55657f;
+        }
+
+        .telemetry-line strong {
+            color: #24344d;
+            text-align: right;
         }
 
         .hidden {
@@ -703,6 +801,10 @@
             .lot-map {
                 height: 520px;
             }
+
+             .stream-stats-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
         }
 
         @media (max-width: 720px) {
@@ -729,7 +831,20 @@
             }
 
             .video-window {
-                min-height: 320px;
+                min-height: 360px;
+            }
+
+            .stream-stats-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .telemetry-line {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .telemetry-line strong {
+                text-align: left;
             }
         }
     </style>
@@ -738,7 +853,7 @@
     <div class="container">
         <div class="header">
             <h1>Parking Management System</h1>
-            <p class="header-copy">Your map dashboard stays intact. The backend now also supports cross-network Jetson devices, command queueing, uploaded images, and MJPEG frame relay for live streaming.</p>
+            <p class="header-copy">Your map dashboard stays intact. The backend now supports cross-network Jetson devices, command queueing, uploaded images, and low-latency MediaMTX WebRTC playback for live streaming.</p>
             <div class="header-meta">
                 <div id="connectionStatus" class="connection-status disconnected">Connecting to backend...</div>
                 <div id="deviceBadge" class="header-badge">Device: waiting</div>
@@ -748,7 +863,7 @@
 
         <div class="tabs">
             <button class="tab-btn active" onclick="openTab(event, 'tab1')">Parking Lots</button>
-            <button class="tab-btn" onclick="openTab(event, 'tab2')">OP Terminal</button>
+            <button class="tab-btn" onclick="openTab(event, 'tab2')">Live Ops</button>
             <button class="tab-btn" onclick="openTab(event, 'tab3')">Data</button>
             <button class="tab-btn" onclick="openTab(event, 'tab4')">Environment</button>
         </div>
@@ -796,53 +911,94 @@
 
         <div id="tab2" class="tab-content">
             <div class="operator-layout">
-                <div class="operator-card">
-                    <div class="panel-title">OP Terminal</div>
-                    <div class="panel-copy">
-                        Queue commands for the selected device. The website stays on this backend origin while the Jetson uploads frames and telemetry from its own network.
-                    </div>
-
-                    <label class="field-label" for="deviceSelect">Selected Device</label>
-                    <select id="deviceSelect" class="device-select"></select>
-
-                    <div class="device-stats">
-                        <div class="mini-card">
-                            <span class="mini-label">Status</span>
-                            <div id="deviceStatus" class="mini-value">Waiting</div>
-                        </div>
-                        <div class="mini-card">
-                            <span class="mini-label">Last Seen</span>
-                            <div id="deviceSeen" class="mini-value" style="font-size: 17px;">-</div>
-                        </div>
-                        <div class="mini-card">
-                            <span class="mini-label">Camera</span>
-                            <div id="deviceCamera" class="mini-value">Unknown</div>
-                        </div>
-                        <div class="mini-card">
-                            <span class="mini-label">Pending</span>
-                            <div id="devicePending" class="mini-value">0</div>
-                        </div>
-                    </div>
-
-                    <div class="terminal-controls">
-                        <button id="startJetsonBtn" class="jetson-btn">Start Camera</button>
-                        <button id="stopJetsonBtn" class="jetson-btn stop">Stop Camera</button>
-                        <button id="captureImageBtn" class="jetson-btn capture">Capture Image</button>
-                    </div>
-
-                    <div id="jetsonStatus" class="status-message">No command sent yet.</div>
-                </div>
-
                 <div class="video-card">
                     <div class="video-header">
-                        <h2>Live Camera Feed</h2>
-                        <div id="streamHint">Waiting for uploaded frames</div>
+                        <div>
+                            <h2>Live Camera Feed</h2>
+                            <div id="streamHint">Negotiating a WebRTC session with MediaMTX</div>
+                        </div>
+                        <button id="reconnectStreamBtn" class="jetson-btn secondary">Reconnect stream</button>
                     </div>
                     <div id="videoWindow" class="video-window">
-                        <div id="videoPlaceholder" class="video-placeholder">
-                            No live frame has reached the backend yet. Once the Jetson uploads JPEG frames, the backend will relay them here as an MJPEG stream.
+                        <video id="liveVideo" class="live-stream" autoplay muted playsinline></video>
+                        <div id="videoOverlay" class="video-placeholder overlay-active">
+                            <div class="video-spinner" aria-hidden="true"></div>
+                            <div id="overlayTitle" class="overlay-title">Starting live stream</div>
+                            <div id="overlayCopy" class="overlay-copy">Waiting for MediaMTX to answer the WebRTC request.</div>
                         </div>
-                        <img id="liveStream" class="live-stream hidden" alt="Live stream">
+                    </div>
+                    <div class="stream-stats-grid">
+                        <div class="stream-stat">
+                            <span class="mini-label">Connection State</span>
+                            <div id="connectionStateDetail" class="stream-stat-value">Connecting</div>
+                        </div>
+                        <div class="stream-stat">
+                            <span class="mini-label">Playback State</span>
+                            <div id="playbackStateDetail" class="stream-stat-value">Idle</div>
+                        </div>
+                        <div class="stream-stat">
+                            <span class="mini-label">Stream Path</span>
+                            <div id="streamPathDetail" class="stream-stat-value">/jetson-01</div>
+                        </div>
+                        <div class="stream-stat">
+                            <span class="mini-label">Last Event</span>
+                            <div id="lastEventDetail" class="stream-stat-value">Page loaded</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="operator-stack">
+                    <div class="operator-card">
+                        <div class="panel-title">Device Controls</div>
+                        <div class="panel-copy">
+                            Queue commands for the selected device while the stream plays directly through MediaMTX WebRTC.
+                        </div>
+
+                        <label class="field-label" for="deviceSelect">Selected Device</label>
+                        <select id="deviceSelect" class="device-select"></select>
+
+                        <div class="device-stats">
+                            <div class="mini-card">
+                                <span class="mini-label">Status</span>
+                                <div id="deviceStatus" class="mini-value">Waiting</div>
+                            </div>
+                            <div class="mini-card">
+                                <span class="mini-label">Last Seen</span>
+                                <div id="deviceSeen" class="mini-value" style="font-size: 17px;">-</div>
+                            </div>
+                            <div class="mini-card">
+                                <span class="mini-label">Camera</span>
+                                <div id="deviceCamera" class="mini-value">Unknown</div>
+                            </div>
+                            <div class="mini-card">
+                                <span class="mini-label">Pending</span>
+                                <div id="devicePending" class="mini-value">0</div>
+                            </div>
+                        </div>
+
+                        <div class="terminal-controls">
+                            <button id="startJetsonBtn" class="jetson-btn">Start Camera</button>
+                            <button id="stopJetsonBtn" class="jetson-btn stop">Stop Camera</button>
+                            <button id="captureImageBtn" class="jetson-btn capture">Capture Image</button>
+                        </div>
+
+                        <div id="jetsonStatus" class="status-message">No command sent yet.</div>
+                    </div>
+
+                    <div class="operator-card">
+                        <div class="panel-title">Telemetry Snapshot</div>
+                        <div class="panel-copy">
+                            Video and telemetry stay separate. These values reflect the latest backend state for the selected device.
+                        </div>
+
+                        <div class="telemetry-summary">
+                            <div class="telemetry-line"><span>GPS Latitude</span><strong id="telemetryLatitude">-</strong></div>
+                            <div class="telemetry-line"><span>GPS Longitude</span><strong id="telemetryLongitude">-</strong></div>
+                            <div class="telemetry-line"><span>Detected Plate</span><strong id="telemetryPlate">-</strong></div>
+                            <div class="telemetry-line"><span>Confidence</span><strong id="telemetryConfidence">-</strong></div>
+                            <div class="telemetry-line"><span>Timestamp</span><strong id="telemetryTimestamp">-</strong></div>
+                            <div class="telemetry-line"><span>Robot Status</span><strong id="telemetryStatus">-</strong></div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -944,6 +1100,7 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="/static/webrtc-player.js"></script>
     <script>
         const API_BASE = "/api";
         let appState = {
@@ -967,7 +1124,14 @@
         let selectedDeviceId = null;
         let eventSource = null;
         let refreshTimer = null;
-        let currentStreamUrl = null;
+        let telemetrySocket = null;
+        let telemetrySocketReconnectTimer = null;
+        let telemetryPingTimer = null;
+        let webrtcPlayer = null;
+        let webrtcPlayerKey = "";
+        let liveTelemetrySnapshot = {};
+        let streamPlaybackState = "Idle";
+        let pageClosing = false;
         let lastLoadError = "";
         const EMPTY_ENVIRONMENTAL_DETECTIONS = {
             cracks: [],
@@ -992,6 +1156,39 @@
         function formatCoordinate(value) {
             const numeric = Number(value);
             return Number.isFinite(numeric) ? numeric.toFixed(6) : "-";
+        }
+
+        function firstPresent(...values) {
+            for (const value of values) {
+                if (value === undefined || value === null) {
+                    continue;
+                }
+                if (typeof value === "string" && !value.trim()) {
+                    continue;
+                }
+                return value;
+            }
+            return null;
+        }
+
+        function humanizeState(value) {
+            if (!value) {
+                return "-";
+            }
+            return String(value)
+                .replace(/[-_]+/g, " ")
+                .replace(/\b\w/g, letter => letter.toUpperCase());
+        }
+
+        function formatConfidence(value) {
+            const numeric = Number(value);
+            if (!Number.isFinite(numeric)) {
+                return "-";
+            }
+            if (numeric <= 1) {
+                return `${(numeric * 100).toFixed(1)}%`;
+            }
+            return `${numeric.toFixed(1)}%`;
         }
 
         async function fetchJson(url, options = {}) {
@@ -1418,7 +1615,7 @@
                 statusElement.className = "connection-status disconnected";
             }
 
-            document.getElementById("deviceBadge").textContent = `Device: ${selectedDeviceId || "waiting"}`;
+            document.getElementById("deviceBadge").textContent = `Device: ${activeStreamDeviceId() || "waiting"}`;
             document.getElementById("timeBadge").textContent = `Server time: ${timeText(appState.server_time)}`;
         }
 
@@ -1426,6 +1623,384 @@
             const statusElement = document.getElementById("jetsonStatus");
             statusElement.textContent = message;
             statusElement.className = `status-message${type ? ` ${type}` : ""}`;
+        }
+
+        function activeStreamDeviceId() {
+            return selectedDeviceId || appState.default_device_id || "jetson-01";
+        }
+
+        function activeStreamLabel() {
+            return `/${activeStreamDeviceId()}`;
+        }
+
+        function activeWhepEndpoint() {
+            return `${API_BASE}/webrtc/${encodeURIComponent(activeStreamDeviceId())}/whep`;
+        }
+
+        function setStreamHint(message) {
+            document.getElementById("streamHint").textContent = message;
+        }
+
+        function setStreamConnectionState(message) {
+            document.getElementById("connectionStateDetail").textContent = message;
+        }
+
+        function setStreamPlaybackState(message) {
+            streamPlaybackState = message;
+            document.getElementById("playbackStateDetail").textContent = message;
+        }
+
+        function setLastStreamEvent(message) {
+            document.getElementById("lastEventDetail").textContent = message;
+        }
+
+        function setStreamPathDetail(deviceId = activeStreamDeviceId()) {
+            document.getElementById("streamPathDetail").textContent = `/${deviceId || "jetson-01"}`;
+        }
+
+        function setStreamOverlay({ visible, title, copy, busy = true }) {
+            const overlay = document.getElementById("videoOverlay");
+            const spinner = overlay.querySelector(".video-spinner");
+            document.getElementById("overlayTitle").textContent = title;
+            document.getElementById("overlayCopy").textContent = copy;
+            spinner.style.display = busy ? "" : "none";
+            overlay.classList.toggle("hidden", !visible);
+        }
+
+        function getTelemetrySnapshot(device) {
+            const telemetry = device ? (device.last_telemetry || {}) : {};
+            const lotStatus = telemetry.lot_status || {};
+            const gps = lotStatus.gps || {};
+            const plate = lotStatus.plate || {};
+
+            return {
+                latitude: firstPresent(
+                    liveTelemetrySnapshot.latitude,
+                    telemetry.latitude,
+                    telemetry.lat,
+                    gps.lat
+                ),
+                longitude: firstPresent(
+                    liveTelemetrySnapshot.longitude,
+                    telemetry.longitude,
+                    telemetry.lon,
+                    gps.lon
+                ),
+                detected_plate: firstPresent(
+                    liveTelemetrySnapshot.detected_plate,
+                    telemetry.detected_plate,
+                    telemetry.plate,
+                    telemetry.license_plate,
+                    plate.text
+                ),
+                confidence: firstPresent(
+                    liveTelemetrySnapshot.confidence,
+                    telemetry.confidence,
+                    plate.confidence
+                ),
+                timestamp: firstPresent(
+                    liveTelemetrySnapshot.timestamp,
+                    telemetry.timestamp,
+                    telemetry.sent_at_utc,
+                    lotStatus.observed_at_utc
+                ),
+                robot_status: firstPresent(
+                    liveTelemetrySnapshot.robot_status,
+                    telemetry.robot_status,
+                    telemetry.status,
+                    telemetry.local_status?.state,
+                    lotStatus.status
+                ),
+            };
+        }
+
+        function renderTelemetrySummary(device) {
+            const telemetry = getTelemetrySnapshot(device);
+            document.getElementById("telemetryLatitude").textContent = formatCoordinate(telemetry.latitude);
+            document.getElementById("telemetryLongitude").textContent = formatCoordinate(telemetry.longitude);
+            document.getElementById("telemetryPlate").textContent = telemetry.detected_plate || "-";
+            document.getElementById("telemetryConfidence").textContent = formatConfidence(telemetry.confidence);
+            document.getElementById("telemetryTimestamp").textContent = timeText(telemetry.timestamp);
+            document.getElementById("telemetryStatus").textContent = telemetry.robot_status || "-";
+        }
+
+        function renderTelemetryJson(device) {
+            const deviceTelemetry = device ? (device.last_telemetry || {}) : {};
+            const liveTelemetryKeys = [
+                "latitude",
+                "longitude",
+                "detected_plate",
+                "confidence",
+                "timestamp",
+                "robot_status"
+            ];
+            const hasLiveTelemetry = liveTelemetryKeys.some(key => (
+                liveTelemetrySnapshot[key] !== null
+                && liveTelemetrySnapshot[key] !== undefined
+                && liveTelemetrySnapshot[key] !== ""
+            ));
+            const payload = hasLiveTelemetry
+                ? { ...deviceTelemetry, _live_socket_snapshot: liveTelemetrySnapshot }
+                : deviceTelemetry;
+            document.getElementById("telemetryJson").textContent = JSON.stringify(payload, null, 2);
+        }
+
+        function handlePlayerStateChange(playerState) {
+            const connectionState = humanizeState(playerState.connectionState || playerState.phase);
+            const detail = playerState.detail || humanizeState(playerState.phase);
+
+            setStreamConnectionState(connectionState);
+            setLastStreamEvent(detail);
+
+            if (playerState.phase === "connected") {
+                setStreamHint(`Live WebRTC session active on ${activeStreamLabel()}`);
+                if (streamPlaybackState === "Idle" || streamPlaybackState === "Negotiating" || streamPlaybackState === "Reconnecting") {
+                    setStreamPlaybackState("Connected");
+                }
+                setStreamOverlay({
+                    visible: false,
+                    title: "Live stream connected",
+                    copy: detail,
+                    busy: false
+                });
+                return;
+            }
+
+            if (playerState.phase === "connecting") {
+                setStreamHint(detail);
+                setStreamPlaybackState("Negotiating");
+                setStreamOverlay({
+                    visible: true,
+                    title: "Starting live stream",
+                    copy: detail,
+                    busy: true
+                });
+                return;
+            }
+
+            if (playerState.phase === "reconnecting") {
+                setStreamHint(detail);
+                setStreamPlaybackState("Reconnecting");
+                setStreamOverlay({
+                    visible: true,
+                    title: "Reconnecting stream",
+                    copy: detail,
+                    busy: true
+                });
+                return;
+            }
+
+            if (playerState.phase === "stopped") {
+                setStreamHint(detail);
+                setStreamPlaybackState("Stopped");
+                setStreamOverlay({
+                    visible: true,
+                    title: "Stream stopped",
+                    copy: detail,
+                    busy: false
+                });
+            }
+        }
+
+        async function stopStreamPlayer(reason = "Live playback stopped.") {
+            const player = webrtcPlayer;
+            webrtcPlayer = null;
+            webrtcPlayerKey = "";
+
+            if (player) {
+                try {
+                    await player.stop();
+                } catch (error) {
+                    console.warn("Unable to stop WebRTC player cleanly.", error);
+                }
+            }
+
+            setStreamConnectionState("Stopped");
+            setStreamPlaybackState("Idle");
+            setStreamHint(reason);
+            setLastStreamEvent(reason);
+            setStreamOverlay({
+                visible: true,
+                title: "Stream unavailable",
+                copy: reason,
+                busy: false
+            });
+        }
+
+        async function syncStreamPlayer(forceReconnect = false) {
+            const deviceId = activeStreamDeviceId();
+            const streamLabel = `/${deviceId}`;
+            const endpoint = activeWhepEndpoint();
+            setStreamPathDetail(deviceId);
+
+            if (!window.MediaMtxWhepPlayer) {
+                setStreamConnectionState("Unavailable");
+                setStreamPlaybackState("Unavailable");
+                setStreamHint("WebRTC player script did not load.");
+                setLastStreamEvent("MediaMtxWhepPlayer is unavailable");
+                setStreamOverlay({
+                    visible: true,
+                    title: "Player unavailable",
+                    copy: "Reload the page and confirm /static/webrtc-player.js is being served.",
+                    busy: false
+                });
+                return;
+            }
+
+            const playerKey = `${deviceId}:${endpoint}`;
+            if (!webrtcPlayer || webrtcPlayerKey !== playerKey) {
+                if (webrtcPlayer) {
+                    await stopStreamPlayer(`Switching stream target to ${streamLabel}.`);
+                }
+
+                const videoElement = document.getElementById("liveVideo");
+                webrtcPlayerKey = playerKey;
+                webrtcPlayer = new window.MediaMtxWhepPlayer({
+                    videoElement,
+                    endpoint,
+                    onStateChange: handlePlayerStateChange,
+                    onTrack: () => {
+                        setLastStreamEvent("Media track received from MediaMTX");
+                    }
+                });
+
+                setStreamConnectionState("Connecting");
+                setStreamPlaybackState("Negotiating");
+                setStreamHint(`Negotiating a WebRTC session for ${streamLabel}`);
+                setLastStreamEvent(`Opening ${streamLabel}`);
+                setStreamOverlay({
+                    visible: true,
+                    title: "Starting live stream",
+                    copy: "Waiting for MediaMTX to answer the WebRTC request.",
+                    busy: true
+                });
+                await webrtcPlayer.start();
+                return;
+            }
+
+            if (forceReconnect && webrtcPlayer) {
+                setLastStreamEvent("Manual reconnect requested");
+                setStreamHint(`Reconnecting ${streamLabel}`);
+                await webrtcPlayer.reconnect("Manual reconnect requested");
+            }
+        }
+
+        function initializeLiveVideoEvents() {
+            const video = document.getElementById("liveVideo");
+
+            video.addEventListener("playing", () => {
+                setStreamPlaybackState("Playing");
+                setStreamHint(`Live video playing on ${activeStreamLabel()}`);
+                setLastStreamEvent("Browser playback started");
+                setStreamOverlay({
+                    visible: false,
+                    title: "Live stream connected",
+                    copy: "Video frames are arriving from MediaMTX.",
+                    busy: false
+                });
+            });
+
+            video.addEventListener("waiting", () => {
+                setStreamPlaybackState("Buffering");
+                setLastStreamEvent("Browser waiting for the next frame");
+                setStreamOverlay({
+                    visible: true,
+                    title: "Buffering live video",
+                    copy: "Media track is connected. Waiting for the next frame.",
+                    busy: true
+                });
+            });
+
+            video.addEventListener("stalled", () => {
+                setStreamPlaybackState("Stalled");
+                setLastStreamEvent("Browser playback stalled");
+                setStreamOverlay({
+                    visible: true,
+                    title: "Stream stalled",
+                    copy: "The browser is waiting for fresh frames from MediaMTX.",
+                    busy: true
+                });
+            });
+
+            video.addEventListener("pause", () => {
+                if (!video.srcObject) {
+                    return;
+                }
+                setStreamPlaybackState("Paused");
+                setLastStreamEvent("Browser playback paused");
+            });
+
+            video.addEventListener("error", () => {
+                const message = video.error
+                    ? `HTML5 video error ${video.error.code}`
+                    : "Browser playback error";
+                setStreamPlaybackState("Error");
+                setLastStreamEvent(message);
+                setStreamOverlay({
+                    visible: true,
+                    title: "Playback error",
+                    copy: "The browser could not render the WebRTC stream.",
+                    busy: false
+                });
+            });
+        }
+
+        function telemetrySocketUrl() {
+            const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+            return `${protocol}//${window.location.host}/ws/telemetry`;
+        }
+
+        function clearTelemetrySocketTimers() {
+            clearTimeout(telemetrySocketReconnectTimer);
+            telemetrySocketReconnectTimer = null;
+            clearInterval(telemetryPingTimer);
+            telemetryPingTimer = null;
+        }
+
+        function connectTelemetrySocket() {
+            clearTelemetrySocketTimers();
+
+            if (telemetrySocket) {
+                telemetrySocket.close();
+                telemetrySocket = null;
+            }
+
+            const socket = new WebSocket(telemetrySocketUrl());
+            telemetrySocket = socket;
+
+            socket.onopen = () => {
+                clearTelemetrySocketTimers();
+                telemetryPingTimer = window.setInterval(() => {
+                    if (socket.readyState === WebSocket.OPEN) {
+                        socket.send("ping");
+                    }
+                }, 15000);
+            };
+
+            socket.onmessage = event => {
+                try {
+                    liveTelemetrySnapshot = JSON.parse(event.data) || {};
+                    const device = getDevice();
+                    renderTelemetrySummary(device);
+                    renderTelemetryJson(device);
+                } catch (error) {
+                    console.warn("Unable to parse telemetry WebSocket payload.", error);
+                }
+            };
+
+            socket.onerror = () => {
+                socket.close();
+            };
+
+            socket.onclose = () => {
+                clearTelemetrySocketTimers();
+                if (telemetrySocket === socket) {
+                    telemetrySocket = null;
+                }
+                if (!pageClosing) {
+                    telemetrySocketReconnectTimer = window.setTimeout(connectTelemetrySocket, 3000);
+                }
+            };
         }
 
         function renderDevicePanel() {
@@ -1454,35 +2029,17 @@
             document.getElementById("deviceCamera").textContent = device ? (device.camera_on ? "On" : "Off") : "Unknown";
             document.getElementById("devicePending").textContent = device ? String(device.pending_command_count ?? 0) : "0";
 
-            document.querySelectorAll(".jetson-btn").forEach(button => {
+            document.querySelectorAll("#startJetsonBtn, #stopJetsonBtn, #captureImageBtn").forEach(button => {
                 button.disabled = !device;
             });
-
-            const streamHint = document.getElementById("streamHint");
-            const placeholder = document.getElementById("videoPlaceholder");
-            const image = document.getElementById("liveStream");
-            const nextStreamUrl = device && device.latest_frame_available ? device.stream_url : null;
-
-            if (nextStreamUrl) {
-                if (currentStreamUrl !== nextStreamUrl) {
-                    image.src = `${nextStreamUrl}?ts=${Date.now()}`;
-                    currentStreamUrl = nextStreamUrl;
-                }
-                streamHint.textContent = `Backend relay active for ${device.device_id}`;
-                image.classList.remove("hidden");
-                placeholder.classList.add("hidden");
-            } else {
-                streamHint.textContent = "Waiting for uploaded frames";
-                image.classList.add("hidden");
-                image.removeAttribute("src");
-                placeholder.classList.remove("hidden");
-                currentStreamUrl = null;
-            }
+            document.getElementById("reconnectStreamBtn").disabled = !activeStreamDeviceId();
+            renderTelemetrySummary(device);
+            void syncStreamPlayer();
         }
 
         function renderDataTab() {
             const device = getDevice();
-            document.getElementById("telemetryJson").textContent = JSON.stringify(device ? (device.last_telemetry || {}) : {}, null, 2);
+            renderTelemetryJson(device);
 
             const commands = document.getElementById("commandsList");
             commands.innerHTML = "";
@@ -1643,11 +2200,22 @@
                     window.setTimeout(() => environmentMap.invalidateSize(), 50);
                 }
             }
+
+            if (tabName === "tab2") {
+                void syncStreamPlayer();
+                window.setTimeout(() => {
+                    document.getElementById("liveVideo").play().catch(() => {});
+                }, 60);
+            }
         }
 
         document.getElementById("deviceSelect").addEventListener("change", event => {
             selectedDeviceId = event.target.value || null;
             renderAll();
+        });
+
+        document.getElementById("reconnectStreamBtn").addEventListener("click", () => {
+            void syncStreamPlayer(true);
         });
 
         document.getElementById("startJetsonBtn").addEventListener("click", () => {
@@ -1669,9 +2237,25 @@
             }
         });
 
+        window.addEventListener("beforeunload", () => {
+            pageClosing = true;
+            clearTelemetrySocketTimers();
+            if (eventSource) {
+                eventSource.close();
+            }
+            if (telemetrySocket) {
+                telemetrySocket.close();
+            }
+            if (webrtcPlayer) {
+                void webrtcPlayer.stop();
+            }
+        });
+
+        initializeLiveVideoEvents();
         setInterval(() => loadState(false), 15000);
         loadState(true);
         connectEvents();
+        connectTelemetrySocket();
     </script>
 </body>
 </html>
