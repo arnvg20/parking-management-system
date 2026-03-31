@@ -447,7 +447,7 @@
 
         .terminal-controls {
             display: grid;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
+            grid-template-columns: repeat(2, minmax(0, 1fr));
             gap: 12px;
             margin: 20px 0 14px;
         }
@@ -462,11 +462,6 @@
             background: #667eea;
             box-shadow: 0 6px 18px rgba(102, 126, 234, 0.25);
             transition: transform 0.12s ease, opacity 0.12s ease;
-        }
-
-        .jetson-btn.capture {
-            background: #00897b;
-            box-shadow: 0 6px 18px rgba(0, 137, 123, 0.25);
         }
 
         .jetson-btn.stop {
@@ -771,7 +766,7 @@
                 <div class="section-panel">
                     <div class="panel-title">Section Summary</div>
                     <div class="panel-copy">
-                        Sections A, B, 3, and 4 are now mapped. Live parking state also updates from the Jetson backend telemetry path.
+                        Sections A, B, 3, and 4 are now mapped. Live parking state now updates from backend-resolved Jetson plate detections instead of Jetson-assigned spaces.
                     </div>
                     <div id="sectionSummary" class="section-summary"></div>
                     <div class="section-next">
@@ -799,7 +794,7 @@
                 <div class="operator-card">
                     <div class="panel-title">OP Terminal</div>
                     <div class="panel-copy">
-                        Queue commands for the selected device. The website stays on this backend origin while the Jetson uploads frames and telemetry from its own network.
+                        Queue patrol-state commands for the selected device. The website stays on this backend origin while the Jetson uploads frames and telemetry from its own network.
                     </div>
 
                     <label class="field-label" for="deviceSelect">Selected Device</label>
@@ -807,7 +802,7 @@
 
                     <div class="device-stats">
                         <div class="mini-card">
-                            <span class="mini-label">Status</span>
+                            <span class="mini-label">Robot State</span>
                             <div id="deviceStatus" class="mini-value">Waiting</div>
                         </div>
                         <div class="mini-card">
@@ -819,15 +814,18 @@
                             <div id="deviceCamera" class="mini-value">Unknown</div>
                         </div>
                         <div class="mini-card">
+                            <span class="mini-label">Stream</span>
+                            <div id="deviceStream" class="mini-value">Unknown</div>
+                        </div>
+                        <div class="mini-card">
                             <span class="mini-label">Pending</span>
                             <div id="devicePending" class="mini-value">0</div>
                         </div>
                     </div>
 
                     <div class="terminal-controls">
-                        <button id="startJetsonBtn" class="jetson-btn">Start Camera</button>
-                        <button id="stopJetsonBtn" class="jetson-btn stop">Stop Camera</button>
-                        <button id="captureImageBtn" class="jetson-btn capture">Capture Image</button>
+                        <button id="startJetsonBtn" class="jetson-btn">Send Patrol</button>
+                        <button id="stopJetsonBtn" class="jetson-btn stop">Send Standby</button>
                     </div>
 
                     <div id="jetsonStatus" class="status-message">No command sent yet.</div>
@@ -851,6 +849,14 @@
         <div id="tab3" class="tab-content">
             <div class="data-layout">
                 <div class="data-card">
+                    <div class="data-section">
+                        <div class="data-section-title">Latest Detection</div>
+                        <div id="latestDetection" class="list-grid"></div>
+                    </div>
+                    <div class="data-section">
+                        <div class="data-section-title">Plate Detections</div>
+                        <div id="plateDetectionsList" class="list-grid"></div>
+                    </div>
                     <div class="data-section">
                         <div class="data-section-title">Latest Telemetry</div>
                         <pre id="telemetryJson">{}</pre>
@@ -994,6 +1000,16 @@
             return Number.isFinite(numeric) ? numeric.toFixed(6) : "-";
         }
 
+        function formatConfidence(value) {
+            const numeric = Number(value);
+            return Number.isFinite(numeric) ? numeric.toFixed(3) : "-";
+        }
+
+        function parseDetectionTime(value) {
+            const date = new Date(value || 0);
+            return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+        }
+
         async function fetchJson(url, options = {}) {
             const response = await fetch(url, options);
             if (response.status === 204) {
@@ -1048,6 +1064,35 @@
 
         function getDevice() {
             return appState.devices.find(device => device.device_id === selectedDeviceId) || null;
+        }
+
+        function getPlateDetections(device = getDevice()) {
+            const telemetry = device ? (device.last_telemetry || {}) : {};
+            const detections = Array.isArray(telemetry.plate_detections) ? [...telemetry.plate_detections] : [];
+            return detections.sort((left, right) => parseDetectionTime(right.detected_at) - parseDetectionTime(left.detected_at));
+        }
+
+        function getLatestDetection(device = getDevice()) {
+            if (device && device.latest_detection) {
+                return device.latest_detection;
+            }
+            return getPlateDetections(device)[0] || null;
+        }
+
+        function renderDetectionCard(detection, title) {
+            const gps = detection && detection.gps ? detection.gps : {};
+            const titleText = title || detection.plate_text || "Unknown Plate";
+            return `
+                <div class="list-item">
+                    <strong>${esc(titleText)}</strong>
+                    <div>Detected: ${esc(timeText(detection.detected_at))}</div>
+                    <div>Resolved Space: ${esc(detection.resolved_space_id || "Unresolved")}</div>
+                    <div>Confidence: ${esc(formatConfidence(detection.confidence))}</div>
+                    <div>Camera: ${esc(detection.source_camera || "-")}</div>
+                    <div>GPS: ${esc(formatCoordinate(gps.lat))}, ${esc(formatCoordinate(gps.lon))}</div>
+                    <div>Event ID: ${esc(detection.event_id || "-")}</div>
+                </div>
+            `;
         }
 
         function createBaseMap(containerId) {
@@ -1449,9 +1494,12 @@
             }
 
             const device = getDevice();
-            document.getElementById("deviceStatus").textContent = device ? (device.is_online ? "Online" : "Waiting") : "Waiting";
+            document.getElementById("deviceStatus").textContent = device
+                ? `${device.status || "Pending"}${device.is_online ? "" : " (offline)"}`
+                : "Waiting";
             document.getElementById("deviceSeen").textContent = device ? timeText(device.last_seen_at) : "-";
             document.getElementById("deviceCamera").textContent = device ? (device.camera_on ? "On" : "Off") : "Unknown";
+            document.getElementById("deviceStream").textContent = device ? (device.stream_enabled ? "Enabled" : "Disabled") : "Unknown";
             document.getElementById("devicePending").textContent = device ? String(device.pending_command_count ?? 0) : "0";
 
             document.querySelectorAll(".jetson-btn").forEach(button => {
@@ -1482,7 +1530,29 @@
 
         function renderDataTab() {
             const device = getDevice();
-            document.getElementById("telemetryJson").textContent = JSON.stringify(device ? (device.last_telemetry || {}) : {}, null, 2);
+            const telemetry = device ? (device.last_telemetry || {}) : {};
+            const latestDetection = getLatestDetection(device);
+            const detections = getPlateDetections(device);
+
+            document.getElementById("telemetryJson").textContent = JSON.stringify(telemetry, null, 2);
+
+            const latestDetectionContainer = document.getElementById("latestDetection");
+            latestDetectionContainer.innerHTML = latestDetection
+                ? renderDetectionCard(latestDetection, latestDetection.plate_text || "Latest Plate")
+                : '<div class="placeholder-panel">No plate detections received for the selected device yet.</div>';
+
+            const plateDetectionsList = document.getElementById("plateDetectionsList");
+            plateDetectionsList.innerHTML = "";
+            if (!detections.length) {
+                plateDetectionsList.innerHTML = '<div class="placeholder-panel">No plate detections available yet.</div>';
+            } else {
+                detections.slice(0, 10).forEach(detection => {
+                    plateDetectionsList.insertAdjacentHTML(
+                        "beforeend",
+                        renderDetectionCard(detection, detection.plate_text || "Detected Plate")
+                    );
+                });
+            }
 
             const commands = document.getElementById("commandsList");
             commands.innerHTML = "";
@@ -1613,11 +1683,15 @@
                 return;
             }
 
+            const gps = vehicle.gps || {};
+            const latitude = vehicle.latitude ?? gps.lat;
+            const longitude = vehicle.longitude ?? gps.lon;
+
             document.getElementById("spaceIdDisplay").textContent = spaceId;
             document.getElementById("licensePlateDisplay").textContent = vehicle.license_plate || "-";
-            document.getElementById("latitudeDisplay").textContent = formatCoordinate(vehicle.latitude);
-            document.getElementById("longitudeDisplay").textContent = formatCoordinate(vehicle.longitude);
-            document.getElementById("timeDisplay").textContent = timeText(vehicle.time);
+            document.getElementById("latitudeDisplay").textContent = formatCoordinate(latitude);
+            document.getElementById("longitudeDisplay").textContent = formatCoordinate(longitude);
+            document.getElementById("timeDisplay").textContent = timeText(vehicle.detected_at || vehicle.time);
             document.getElementById("deviceIdDisplay").textContent = vehicle.device_id || "-";
             document.getElementById("vehicleModal").style.display = "block";
         }
@@ -1651,15 +1725,11 @@
         });
 
         document.getElementById("startJetsonBtn").addEventListener("click", () => {
-            sendDeviceCommand("camera_on");
+            sendDeviceCommand("cmd_patrol");
         });
 
         document.getElementById("stopJetsonBtn").addEventListener("click", () => {
-            sendDeviceCommand("camera_off");
-        });
-
-        document.getElementById("captureImageBtn").addEventListener("click", () => {
-            sendDeviceCommand("capture_image");
+            sendDeviceCommand("cmd_standby");
         });
 
         window.addEventListener("click", event => {

@@ -6,6 +6,11 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$allowedCommands = @("cmd_patrol", "cmd_standby")
+
+if ($allowedCommands -notcontains $Command) {
+    throw "Unsupported command '$Command'. Supported commands: $($allowedCommands -join ', ')"
+}
 
 $backendBase = $BackendUrl.TrimEnd("/")
 $queueUrl = "$backendBase/api/devices/$DeviceId/commands"

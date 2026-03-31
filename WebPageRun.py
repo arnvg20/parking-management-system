@@ -7,6 +7,7 @@ from flask import Flask, Response, jsonify, make_response, request, send_file, s
 from flask_cors import CORS
 
 from backend_state import BackendState
+from jetson_contract import JETSON_COMMANDS, normalize_command_name, normalize_telemetry_payload, parse_float
 from Tab1 import (
     environmental_detections,
     find_matching_space,
@@ -27,8 +28,9 @@ app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 15 * 1024 * 1024
 CORS(app, resources={r"/api/*": {"origins": ALLOWED_ORIGIN}})
 
-# Keep the original sample data behavior for local demo mode.
-load_sample_vehicles()
+# Keep demo occupancy seeding opt-in so real telemetry stays the source of truth.
+if os.getenv("LOAD_SAMPLE_VEHICLES", "0") == "1":
+    load_sample_vehicles()
 state = BackendState(
     parking_spaces,
     find_matching_space,
@@ -60,15 +62,6 @@ def get_device_id_from_request(required=True):
     if required and not value:
         return None, (jsonify({"error": "device_id is required"}), 400)
     return value, None
-
-
-def parse_float(value):
-    if value in (None, ""):
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
 
 
 def serialize_point(point):
@@ -228,7 +221,7 @@ def add_vehicle():
     if not changed_space:
         return jsonify({"status": "error", "message": "No matching parking space found"}), 404
 
-    resolved_space_id = space_id or find_matching_space(latitude, longitude, offset_meters=1)
+    resolved_space_id = space_id or ((changed_space.get("vehicle_data") or {}).get("resolved_space_id"))
     return jsonify(
         {
             "status": "success",
@@ -330,9 +323,21 @@ def queue_device_command(device_id):
     if not command_name:
         return jsonify({"error": "command is required"}), 400
 
+    normalized_command = normalize_command_name(command_name)
+    if not normalized_command:
+        return (
+            jsonify(
+                {
+                    "error": f"Unsupported command '{command_name}'",
+                    "supported_commands": list(JETSON_COMMANDS),
+                }
+            ),
+            400,
+        )
+
     command = state.queue_command(
         device_id=device_id,
-        command_type=command_name,
+        command_type=normalized_command,
         payload=payload.get("payload") or {},
         requested_by=payload.get("requested_by", "website"),
     )
@@ -419,7 +424,7 @@ def event_stream():
 def start_camera_legacy():
     payload = read_json_body()
     device_id = payload.get("device_id", DEFAULT_DEVICE_ID)
-    command = state.queue_command(device_id, "camera_on", requested_by="legacy-api")
+    command = state.queue_command(device_id, "cmd_patrol", requested_by="legacy-api")
     return jsonify({"status": "queued", "command": command}), 202
 
 
@@ -427,7 +432,7 @@ def start_camera_legacy():
 def stop_camera_legacy():
     payload = read_json_body()
     device_id = payload.get("device_id", DEFAULT_DEVICE_ID)
-    command = state.queue_command(device_id, "camera_off", requested_by="legacy-api")
+    command = state.queue_command(device_id, "cmd_standby", requested_by="legacy-api")
     return jsonify({"status": "queued", "command": command}), 202
 
 
@@ -452,19 +457,12 @@ def jetson_heartbeat():
 @app.route("/api/jetson/telemetry", methods=["POST"])
 def jetson_telemetry():
     payload = read_json_body()
-    device_id = payload.get("device_id")
+    telemetry = normalize_telemetry_payload(payload, fallback_device_id=payload.get("device_id"))
+    device_id = telemetry.get("device_id")
     if not device_id:
         return jsonify({"error": "device_id is required"}), 400
 
-    telemetry = payload.get("telemetry") or {}
-    parking_updates = payload.get("parking_updates") or payload.get("events") or []
-    normalized_updates = []
-    for update in parking_updates:
-        normalized = dict(update)
-        normalized.setdefault("device_id", device_id)
-        normalized_updates.append(normalized)
-
-    result = state.update_telemetry(device_id, telemetry, normalized_updates)
+    result = state.update_telemetry(device_id, telemetry)
     return jsonify(
         {
             "status": "ok",
@@ -494,13 +492,11 @@ def jetson_upload_image():
         content_type=image_file.mimetype or "image/jpeg",
     )
 
-    space_id = metadata.get("space_id")
     latitude = parse_float(metadata.get("latitude"))
     longitude = parse_float(metadata.get("longitude"))
-    if space_id or (latitude is not None and longitude is not None):
+    if latitude is not None and longitude is not None:
         state.apply_manual_parking_update(
             {
-                "space_id": space_id,
                 "latitude": latitude,
                 "longitude": longitude,
                 "occupied": str(metadata.get("occupied", "true")).lower() != "false",
@@ -508,6 +504,9 @@ def jetson_upload_image():
                 "captured_at": metadata.get("captured_at"),
                 "device_id": device_id,
                 "image_id": image_record["id"],
+                "confidence": parse_float(metadata.get("confidence")),
+                "event_id": metadata.get("event_id"),
+                "source_camera": metadata.get("source_camera"),
             }
         )
 

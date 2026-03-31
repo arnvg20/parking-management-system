@@ -1,5 +1,6 @@
 import copy
 import json
+import math
 import queue
 import threading
 import time
@@ -8,6 +9,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from werkzeug.utils import secure_filename
+
+from jetson_contract import normalize_robot_status, parse_timestamp, select_latest_detection
 
 
 def utcnow_iso():
@@ -44,6 +47,7 @@ class BackendState:
         self.subscribers = set()
         self.command_sequence = 1
         self.default_device_id = default_device_id
+        self.space_resolution_offset_meters = 12
 
         self.runtime_dir = Path(runtime_dir)
         self.images_dir = self.runtime_dir / "images"
@@ -85,11 +89,13 @@ class BackendState:
             device.setdefault("recent_image_ids", [])
             device.setdefault("last_heartbeat", {})
             device.setdefault("last_telemetry", {})
+            device.setdefault("latest_detection", None)
             device.setdefault("camera_on", False)
             device.setdefault("stream_enabled", False)
             device.setdefault("latest_image_id", None)
             device.setdefault("latest_image_path", None)
             device.setdefault("last_command_result", None)
+            device["status"] = normalize_robot_status(device.get("status"))
 
             if frame_path and Path(frame_path).exists():
                 try:
@@ -157,12 +163,13 @@ class BackendState:
         return {
             "device_id": device_id,
             "name": display_name,
-            "status": "waiting",
+            "status": "Pending",
             "camera_on": False,
             "stream_enabled": False,
             "last_seen_at": None,
             "last_heartbeat": {},
             "last_telemetry": {},
+            "latest_detection": None,
             "latest_frame_path": None,
             "latest_frame_updated_at": None,
             "latest_frame_version": 0,
@@ -269,7 +276,10 @@ class BackendState:
             device = self.devices[device_id]
             if name:
                 device["name"] = name
-            device["status"] = payload.get("status", "online")
+            device["status"] = normalize_robot_status(
+                payload.get("robot_status") or payload.get("status"),
+                default=device.get("status", "Pending"),
+            )
             device["camera_on"] = coerce_bool(payload.get("camera_on"), default=device.get("camera_on", False))
             device["stream_enabled"] = coerce_bool(
                 payload.get("stream_enabled"),
@@ -285,32 +295,184 @@ class BackendState:
             self.command_condition.notify_all()
             return snapshot
 
-    def update_telemetry(self, device_id, telemetry, parking_updates=None):
-        parking_updates = parking_updates or []
+    def update_telemetry(self, device_id, telemetry):
         with self.lock:
             if device_id not in self.devices:
                 self.devices[device_id] = self._device_template(device_id)
 
             device = self.devices[device_id]
             device["last_seen_at"] = utcnow_iso()
-            device["last_telemetry"] = telemetry or {}
-            device["updated_at"] = utcnow_iso()
+            device["status"] = normalize_robot_status(
+                telemetry.get("robot_status"),
+                default=device.get("status", "Pending"),
+            )
+            device["camera_on"] = coerce_bool(telemetry.get("camera_on"), default=device.get("camera_on", False))
+            device["stream_enabled"] = coerce_bool(
+                telemetry.get("stream_enabled"),
+                default=device.get("stream_enabled", False),
+            )
 
             applied_spaces = []
-            for update in parking_updates:
-                changed_space = self._apply_parking_update_locked(update)
-                if changed_space:
-                    applied_spaces.append(changed_space)
+            enriched_detections = []
+            detections = telemetry.get("plate_detections") or []
+            sorted_detections = sorted(
+                detections,
+                key=lambda item: parse_timestamp(item.get("detected_at")) or datetime.min.replace(tzinfo=timezone.utc),
+            )
+            for detection in sorted_detections:
+                enriched_detection, changed_spaces = self._apply_plate_detection_locked(
+                    device_id,
+                    detection,
+                    telemetry_timestamp=telemetry.get("timestamp"),
+                )
+                enriched_detections.append(enriched_detection)
+                applied_spaces.extend(changed_spaces)
+
+            stored_telemetry = copy.deepcopy(telemetry or {})
+            stored_telemetry["plate_detections"] = enriched_detections
+            stored_telemetry["latest_detection"] = select_latest_detection(enriched_detections)
+            device["last_telemetry"] = stored_telemetry
+            device["latest_detection"] = copy.deepcopy(stored_telemetry["latest_detection"])
+            device["updated_at"] = utcnow_iso()
 
             snapshot = self._device_snapshot_locked(device_id)
             self._persist_state_locked()
             self._emit_event_locked("device.updated", {"device_id": device_id})
             if applied_spaces:
-                self._emit_event_locked("parking.updated", {"spaces": applied_spaces})
+                unique_spaces = list(dict.fromkeys(applied_spaces))
+                self._emit_event_locked("parking.updated", {"spaces": unique_spaces})
             return {
                 "device": snapshot,
-                "updated_spaces": applied_spaces,
+                "updated_spaces": list(dict.fromkeys(applied_spaces)),
             }
+
+    def _distance_between_points_locked(self, lat1, lon1, lat2, lon2):
+        radius_meters = 6371000
+
+        lat1_rad = math.radians(lat1)
+        lat2_rad = math.radians(lat2)
+        delta_lat = math.radians(lat2 - lat1)
+        delta_lon = math.radians(lon2 - lon1)
+
+        a_value = (
+            math.sin(delta_lat / 2) ** 2
+            + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(delta_lon / 2) ** 2
+        )
+        c_value = 2 * math.asin(math.sqrt(a_value))
+        return radius_meters * c_value
+
+    def _find_nearest_space_locked(self, latitude, longitude):
+        closest_space_id = None
+        closest_distance = None
+
+        for candidate_space_id, values in self.parking_spaces.items():
+            candidate_distance = self._distance_between_points_locked(
+                latitude,
+                longitude,
+                values["latitude"],
+                values["longitude"],
+            )
+            if closest_distance is None or candidate_distance < closest_distance:
+                closest_space_id = candidate_space_id
+                closest_distance = candidate_distance
+
+        return closest_space_id, closest_distance
+
+    def _resolve_space_id_locked(self, latitude, longitude):
+        if latitude is None or longitude is None:
+            return None, None
+
+        direct_match = self.find_matching_space(latitude, longitude, offset_meters=self.space_resolution_offset_meters)
+        if direct_match:
+            distance = self._distance_between_points_locked(
+                latitude,
+                longitude,
+                self.parking_spaces[direct_match]["latitude"],
+                self.parking_spaces[direct_match]["longitude"],
+            )
+            return direct_match, distance
+
+        closest_space_id, closest_distance = self._find_nearest_space_locked(latitude, longitude)
+        if closest_space_id and closest_distance is not None and closest_distance <= self.space_resolution_offset_meters:
+            return closest_space_id, closest_distance
+        return None, closest_distance
+
+    def _find_space_for_plate_locked(self, plate_text):
+        if not plate_text:
+            return None
+
+        for candidate_space_id, values in self.parking_spaces.items():
+            vehicle_data = values.get("vehicle_data") or {}
+            if vehicle_data.get("license_plate") == plate_text:
+                return candidate_space_id
+        return None
+
+    def _clear_space_locked(self, space_id):
+        if space_id in self.parking_spaces:
+            self.parking_spaces[space_id]["occupied"] = False
+            self.parking_spaces[space_id]["vehicle_data"] = None
+
+    def _is_newer_or_equal_event(self, next_time, current_time):
+        next_timestamp = parse_timestamp(next_time)
+        current_timestamp = parse_timestamp(current_time)
+
+        if next_timestamp and current_timestamp:
+            return next_timestamp >= current_timestamp
+        if next_timestamp:
+            return True
+        return current_time in (None, "")
+
+    def _apply_plate_detection_locked(self, device_id, detection, telemetry_timestamp=None):
+        telemetry_timestamp = telemetry_timestamp or utcnow_iso()
+        normalized_detection = copy.deepcopy(detection or {})
+        gps = normalized_detection.get("gps") or {}
+        latitude = gps.get("lat")
+        longitude = gps.get("lon")
+        detected_at = normalized_detection.get("detected_at") or telemetry_timestamp
+        plate_text = normalized_detection.get("plate_text")
+
+        resolved_space_id, resolved_distance_meters = self._resolve_space_id_locked(latitude, longitude)
+        normalized_detection["resolved_space_id"] = resolved_space_id
+        normalized_detection["resolved_distance_meters"] = (
+            round(resolved_distance_meters, 3) if resolved_distance_meters is not None else None
+        )
+
+        if not resolved_space_id:
+            return normalized_detection, []
+
+        target_space = self.parking_spaces[resolved_space_id]
+        target_vehicle = target_space.get("vehicle_data") or {}
+        if not self._is_newer_or_equal_event(detected_at, target_vehicle.get("time")):
+            return normalized_detection, []
+
+        changed_spaces = []
+        previous_space_id = self._find_space_for_plate_locked(plate_text)
+        if previous_space_id and previous_space_id != resolved_space_id:
+            previous_vehicle = self.parking_spaces[previous_space_id].get("vehicle_data") or {}
+            if self._is_newer_or_equal_event(detected_at, previous_vehicle.get("time")):
+                self._clear_space_locked(previous_space_id)
+                changed_spaces.append(previous_space_id)
+
+        target_space["occupied"] = True
+        target_space["vehicle_data"] = {
+            "license_plate": plate_text,
+            "time": detected_at,
+            "detected_at": detected_at,
+            "latitude": latitude,
+            "longitude": longitude,
+            "gps": {
+                "lat": latitude,
+                "lon": longitude,
+            },
+            "confidence": normalized_detection.get("confidence"),
+            "device_id": device_id,
+            "image_id": normalized_detection.get("image_id"),
+            "event_id": normalized_detection.get("event_id"),
+            "source_camera": normalized_detection.get("source_camera"),
+            "resolved_space_id": resolved_space_id,
+        }
+        changed_spaces.append(resolved_space_id)
+        return normalized_detection, changed_spaces
 
     def _apply_parking_update_locked(self, update):
         space_id = update.get("space_id")
@@ -319,7 +481,7 @@ class BackendState:
             longitude = update.get("longitude")
             if latitude is None or longitude is None:
                 return None
-            space_id = self.find_matching_space(latitude, longitude, offset_meters=1)
+            space_id, _ = self._resolve_space_id_locked(latitude, longitude)
 
         if not space_id or space_id not in self.parking_spaces:
             return None
@@ -332,11 +494,19 @@ class BackendState:
             self.parking_spaces[space_id]["vehicle_data"] = {
                 "license_plate": update.get("license_plate"),
                 "time": captured_at,
+                "detected_at": captured_at,
                 "latitude": update.get("latitude"),
                 "longitude": update.get("longitude"),
+                "gps": {
+                    "lat": update.get("latitude"),
+                    "lon": update.get("longitude"),
+                },
                 "confidence": update.get("confidence"),
                 "device_id": update.get("device_id"),
                 "image_id": update.get("image_id"),
+                "event_id": update.get("event_id"),
+                "source_camera": update.get("source_camera"),
+                "resolved_space_id": space_id,
             }
         else:
             self.parking_spaces[space_id]["vehicle_data"] = None
@@ -362,11 +532,18 @@ class BackendState:
             if not current["occupied"]:
                 current["vehicle_data"] = None
             elif not current.get("vehicle_data"):
+                captured_at = utcnow_iso()
                 current["vehicle_data"] = {
                     "license_plate": "MANUAL",
-                    "time": utcnow_iso(),
+                    "time": captured_at,
+                    "detected_at": captured_at,
                     "latitude": current["latitude"],
                     "longitude": current["longitude"],
+                    "gps": {
+                        "lat": current["latitude"],
+                        "lon": current["longitude"],
+                    },
+                    "resolved_space_id": space_id,
                 }
 
             self._persist_state_locked()

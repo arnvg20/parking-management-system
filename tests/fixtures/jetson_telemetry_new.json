@@ -1,0 +1,48 @@
+{
+  "device_id": "jetson-01",
+  "cpu": 0.8333,
+  "memory": 0.7249,
+  "temp_c": 57.0,
+  "camera_on": true,
+  "stream_enabled": true,
+  "robot_status": "Patrol",
+  "timestamp": "2026-03-31T18:14:44.537Z",
+  "plate_detections": [
+    {
+      "event_id": "ocr:cam0_plate5:1774975900000",
+      "plate_text": "ABC-123",
+      "detected_at": "2026-03-31T16:51:40.000Z",
+      "confidence": 0.913,
+      "bbox_xyxy": {
+        "x1": 300,
+        "y1": 420,
+        "x2": 940,
+        "y2": 860
+      },
+      "image_id": "img-older",
+      "source_camera": "/dev/video0",
+      "gps": {
+        "lat": 43.77139444,
+        "lon": -79.50583056
+      }
+    },
+    {
+      "event_id": "ocr:cam0_plate6:1774975961478",
+      "plate_text": "PN-481",
+      "detected_at": "2026-03-31T16:52:41.478Z",
+      "confidence": null,
+      "bbox_xyxy": {
+        "x1": 344,
+        "y1": 504,
+        "x2": 1082,
+        "y2": 934
+      },
+      "image_id": null,
+      "source_camera": "/dev/video0",
+      "gps": {
+        "lat": null,
+        "lon": null
+      }
+    }
+  ]
+}

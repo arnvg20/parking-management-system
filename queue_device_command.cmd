@@ -3,7 +3,7 @@ setlocal
 
 set "COMMAND_NAME=%~1"
 if "%COMMAND_NAME%"=="" (
-    echo Usage: queue_device_command.cmd ^<camera_on^|camera_off^|capture_image^> [backendUrl] [deviceId]
+    echo Usage: queue_device_command.cmd ^<cmd_patrol^|cmd_standby^> [backendUrl] [deviceId]
     exit /b 1
 )
 
