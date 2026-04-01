@@ -30,7 +30,19 @@ def coerce_bool(value, default=False):
     return bool(value)
 
 
+def first_present(*values):
+    for value in values:
+        if value is None:
+            continue
+        if isinstance(value, str) and not value.strip():
+            continue
+        return value
+    return None
+
+
 class BackendState:
+    OBSERVATION_HISTORY_LIMIT = 80
+
     def __init__(self, parking_spaces, find_matching_space, runtime_dir="runtime_data", default_device_id="jetson-01"):
         self.lock = threading.RLock()
         self.command_condition = threading.Condition(self.lock)
@@ -41,6 +53,7 @@ class BackendState:
         self.devices = {}
         self.commands = []
         self.uploads = {}
+        self.observations = {}
         self.subscribers = set()
         self.command_sequence = 1
         self.default_device_id = default_device_id
@@ -48,6 +61,7 @@ class BackendState:
         self.runtime_dir = Path(runtime_dir)
         self.images_dir = self.runtime_dir / "images"
         self.frames_dir = self.runtime_dir / "frames"
+        self.observations_dir = self.runtime_dir / "observations"
         self.state_file = self.runtime_dir / "state.json"
 
         self._ensure_runtime_dirs()
@@ -57,6 +71,7 @@ class BackendState:
     def _ensure_runtime_dirs(self):
         self.images_dir.mkdir(parents=True, exist_ok=True)
         self.frames_dir.mkdir(parents=True, exist_ok=True)
+        self.observations_dir.mkdir(parents=True, exist_ok=True)
 
     def _load_state(self):
         if not self.state_file.exists():
@@ -77,6 +92,7 @@ class BackendState:
         self.devices = persisted.get("devices", {})
         self.commands = persisted.get("commands", [])
         self.uploads = persisted.get("uploads", {})
+        self.observations = persisted.get("observations", {})
         self.command_sequence = persisted.get("command_sequence", 1)
 
         for device in self.devices.values():
@@ -90,6 +106,8 @@ class BackendState:
             device.setdefault("latest_image_id", None)
             device.setdefault("latest_image_path", None)
             device.setdefault("last_command_result", None)
+            device.setdefault("latest_observation_id", None)
+            device.setdefault("recent_observation_ids", [])
 
             if frame_path and Path(frame_path).exists():
                 try:
@@ -118,6 +136,7 @@ class BackendState:
             "devices": devices,
             "commands": self.commands[-200:],
             "uploads": self.uploads,
+            "observations": self.observations,
             "command_sequence": self.command_sequence,
         }
 
@@ -171,8 +190,228 @@ class BackendState:
             "latest_image_path": None,
             "recent_image_ids": [],
             "last_command_result": None,
+            "latest_observation_id": None,
+            "recent_observation_ids": [],
             "updated_at": utcnow_iso(),
         }
+
+    def _observation_file_name(self, created_at, observation_id):
+        safe_timestamp = created_at.replace(":", "").replace("-", "").replace("+00:00", "Z")
+        safe_timestamp = safe_timestamp.replace(".", "_")
+        return f"{safe_timestamp}_{observation_id[:8]}.json"
+
+    def _normalize_detection_items(self, telemetry):
+        if not isinstance(telemetry, dict):
+            return []
+
+        detection_candidates = (
+            telemetry.get("plate_detections"),
+            telemetry.get("detections"),
+            telemetry.get("license_plate_detections"),
+        )
+        for candidate in detection_candidates:
+            if isinstance(candidate, list):
+                return [item for item in candidate if isinstance(item, dict)]
+        return []
+
+    def _build_observation_summary(self, device_id, payload, created_at, source):
+        payload = payload if isinstance(payload, dict) else {}
+        telemetry = payload.get("telemetry") if isinstance(payload.get("telemetry"), dict) else payload
+        telemetry = telemetry if isinstance(telemetry, dict) else {}
+        detections = self._normalize_detection_items(telemetry)
+        parking_updates = payload.get("parking_updates") or payload.get("events") or []
+        parking_updates = [item for item in parking_updates if isinstance(item, dict)]
+
+        primary_detection = detections[0] if detections else {}
+        primary_update = parking_updates[0] if parking_updates else {}
+        lot_status = telemetry.get("lot_status") if isinstance(telemetry.get("lot_status"), dict) else {}
+        plate_status = lot_status.get("plate") if isinstance(lot_status.get("plate"), dict) else {}
+        gps_status = lot_status.get("gps") if isinstance(lot_status.get("gps"), dict) else {}
+
+        plate_text = first_present(
+            primary_detection.get("plate_text"),
+            primary_detection.get("text"),
+            primary_detection.get("license_plate"),
+            telemetry.get("detected_plate"),
+            telemetry.get("plate"),
+            telemetry.get("license_plate"),
+            primary_update.get("license_plate"),
+            plate_status.get("text"),
+        )
+        confidence = first_present(
+            primary_detection.get("confidence"),
+            telemetry.get("confidence"),
+            primary_update.get("confidence"),
+            plate_status.get("confidence"),
+        )
+        timestamp = first_present(
+            primary_detection.get("timestamp"),
+            telemetry.get("timestamp"),
+            telemetry.get("sent_at_utc"),
+            primary_update.get("captured_at"),
+            lot_status.get("observed_at_utc"),
+            payload.get("timestamp"),
+            created_at,
+        )
+        latitude = first_present(
+            primary_detection.get("latitude"),
+            telemetry.get("latitude"),
+            telemetry.get("lat"),
+            primary_update.get("latitude"),
+            gps_status.get("lat"),
+        )
+        longitude = first_present(
+            primary_detection.get("longitude"),
+            telemetry.get("longitude"),
+            telemetry.get("lon"),
+            primary_update.get("longitude"),
+            gps_status.get("lon"),
+        )
+        space_id = first_present(
+            primary_detection.get("space_id"),
+            primary_update.get("space_id"),
+            telemetry.get("space_id"),
+            lot_status.get("space_id"),
+        )
+        robot_status = first_present(
+            telemetry.get("robot_status"),
+            telemetry.get("status"),
+            (telemetry.get("local_status") or {}).get("state") if isinstance(telemetry.get("local_status"), dict) else None,
+            lot_status.get("status"),
+        )
+
+        return {
+            "device_id": device_id,
+            "source": source,
+            "timestamp": timestamp,
+            "plate_text": plate_text,
+            "confidence": confidence,
+            "space_id": space_id,
+            "latitude": latitude,
+            "longitude": longitude,
+            "robot_status": robot_status,
+            "detection_count": len(detections),
+            "parking_update_count": len(parking_updates),
+        }
+
+    def _observation_metadata_locked(self, observation_id):
+        record = self.observations.get(observation_id)
+        if not record:
+            return None
+
+        metadata = copy.deepcopy(record)
+        metadata["detail_url"] = f"/api/devices/{metadata['device_id']}/observations/{observation_id}"
+        metadata["raw_url"] = f"/api/devices/{metadata['device_id']}/observations/{observation_id}/raw"
+        return metadata
+
+    def _prune_observations_locked(self, device):
+        recent_ids = device.get("recent_observation_ids", [])
+        if len(recent_ids) <= self.OBSERVATION_HISTORY_LIMIT:
+            return
+
+        retained_ids = recent_ids[: self.OBSERVATION_HISTORY_LIMIT]
+        stale_ids = recent_ids[self.OBSERVATION_HISTORY_LIMIT :]
+        device["recent_observation_ids"] = retained_ids
+        if device.get("latest_observation_id") in stale_ids:
+            device["latest_observation_id"] = retained_ids[0] if retained_ids else None
+
+        for observation_id in stale_ids:
+            record = self.observations.pop(observation_id, None)
+            if not record:
+                continue
+            path = record.get("path")
+            if path:
+                try:
+                    Path(path).unlink(missing_ok=True)
+                except OSError:
+                    pass
+
+    def save_observation(self, device_id, payload, source="jetson.telemetry"):
+        payload = copy.deepcopy(payload) if isinstance(payload, dict) else {"payload": payload}
+        created_at = utcnow_iso()
+        observation_id = uuid.uuid4().hex
+        file_name = self._observation_file_name(created_at, observation_id)
+        device_dir = self.observations_dir / device_id
+        device_dir.mkdir(parents=True, exist_ok=True)
+        file_path = device_dir / file_name
+        summary = self._build_observation_summary(device_id, payload, created_at, source)
+        document = {
+            "id": observation_id,
+            "device_id": device_id,
+            "source": source,
+            "created_at": created_at,
+            "summary": summary,
+            "payload": payload,
+        }
+        file_path.write_text(json.dumps(document, indent=2), encoding="utf-8")
+
+        with self.lock:
+            if device_id not in self.devices:
+                self.devices[device_id] = self._device_template(device_id)
+
+            record = {
+                "id": observation_id,
+                "device_id": device_id,
+                "filename": file_name,
+                "path": str(file_path),
+                "created_at": created_at,
+                "source": source,
+                "summary": summary,
+            }
+            self.observations[observation_id] = record
+
+            device = self.devices[device_id]
+            device["latest_observation_id"] = observation_id
+            device["recent_observation_ids"] = [
+                observation_id,
+                *[value for value in device.get("recent_observation_ids", []) if value != observation_id],
+            ]
+            self._prune_observations_locked(device)
+            device["updated_at"] = utcnow_iso()
+
+            self._persist_state_locked()
+            self._emit_event_locked("observation.saved", {"device_id": device_id, "observation_id": observation_id})
+            return self._observation_metadata_locked(observation_id)
+
+    def get_observations_for_device(self, device_id, limit=30):
+        with self.lock:
+            device = self.devices.get(device_id)
+            if not device:
+                return []
+
+            items = []
+            for observation_id in device.get("recent_observation_ids", [])[:limit]:
+                metadata = self._observation_metadata_locked(observation_id)
+                if metadata:
+                    items.append(metadata)
+            return items
+
+    def get_observation(self, device_id, observation_id):
+        with self.lock:
+            metadata = self._observation_metadata_locked(observation_id)
+            if not metadata or metadata["device_id"] != device_id:
+                return None
+
+            file_path = metadata.get("path")
+        if not file_path:
+            return None
+
+        try:
+            document = json.loads(Path(file_path).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+
+        return {
+            "observation": metadata,
+            "document": document,
+        }
+
+    def get_observation_file_path(self, device_id, observation_id):
+        with self.lock:
+            record = self.observations.get(observation_id)
+            if not record or record.get("device_id") != device_id:
+                return None
+            return record.get("path")
 
     def ensure_device(self, device_id, name=None):
         with self.lock:
@@ -210,6 +449,13 @@ class BackendState:
             for image_id in device.get("recent_image_ids", [])
             if image_id in self.uploads
         ]
+        device["observation_count"] = len(device.get("recent_observation_ids", []))
+        if device.get("latest_observation_id"):
+            device["latest_observation_url"] = (
+                f"/api/devices/{device_id}/observations/{device['latest_observation_id']}"
+            )
+        else:
+            device["latest_observation_url"] = None
         device["pending_command_count"] = sum(
             1
             for command in self.commands

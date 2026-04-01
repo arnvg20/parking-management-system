@@ -269,6 +269,35 @@ async def get_device_commands(device_id: str) -> list[dict[str, Any]]:
     return await run_in_threadpool(state.get_commands_for_device, device_id)
 
 
+@app.get("/api/devices/{device_id}/observations")
+async def get_device_observations(device_id: str) -> list[dict[str, Any]]:
+    device = await run_in_threadpool(state.get_device, device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    return await run_in_threadpool(state.get_observations_for_device, device_id)
+
+
+@app.get("/api/devices/{device_id}/observations/{observation_id}")
+async def get_device_observation(device_id: str, observation_id: str) -> dict[str, Any]:
+    observation = await run_in_threadpool(state.get_observation, device_id, observation_id)
+    if not observation:
+        raise HTTPException(status_code=404, detail="Observation not found")
+    return observation
+
+
+@app.get("/api/devices/{device_id}/observations/{observation_id}/raw")
+async def get_device_observation_raw(device_id: str, observation_id: str) -> FileResponse:
+    observation_path = await run_in_threadpool(state.get_observation_file_path, device_id, observation_id)
+    if not observation_path:
+        raise HTTPException(status_code=404, detail="Observation not found")
+
+    return FileResponse(
+        observation_path,
+        media_type="application/json",
+        filename=Path(observation_path).name,
+    )
+
+
 @app.post("/api/devices/{device_id}/commands")
 async def queue_device_command(device_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     command_name = _validate_command_name(str(payload.get("command", "")).strip())
@@ -357,6 +386,7 @@ async def jetson_telemetry(request: Request, payload: dict[str, Any]) -> dict[st
         normalized.setdefault("device_id", device_id)
         normalized_updates.append(normalized)
 
+    await run_in_threadpool(state.save_observation, device_id, payload, "jetson.telemetry")
     result = await run_in_threadpool(state.update_telemetry, device_id, telemetry_payload or {}, normalized_updates)
     await telemetry_hub.publish(_normalize_frontend_telemetry(payload))
     return {

@@ -689,6 +689,108 @@
             padding: 14px;
         }
 
+        .observation-list {
+            display: grid;
+            gap: 12px;
+        }
+
+        .observation-item {
+            width: 100%;
+            border: 1px solid #d8e2f3;
+            border-radius: 14px;
+            background: white;
+            padding: 14px;
+            text-align: left;
+            cursor: pointer;
+            transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+        }
+
+        .observation-item:hover {
+            border-color: #8aa7ff;
+            box-shadow: 0 10px 24px rgba(102, 126, 234, 0.12);
+            transform: translateY(-1px);
+        }
+
+        .observation-item.active {
+            border-color: #667eea;
+            box-shadow: 0 12px 28px rgba(102, 126, 234, 0.18);
+            background: linear-gradient(180deg, #f8faff 0%, #eef3ff 100%);
+        }
+
+        .observation-item strong {
+            display: block;
+            color: #24344d;
+            margin-bottom: 8px;
+        }
+
+        .observation-item div {
+            color: #5e6c84;
+            line-height: 1.5;
+        }
+
+        .observation-item .observation-primary {
+            color: #24344d;
+            font-weight: 600;
+        }
+
+        .observation-viewer {
+            display: grid;
+            gap: 16px;
+        }
+
+        .observation-meta-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        .observation-meta-card {
+            background: #f7f9fe;
+            border: 1px solid #d8e2f3;
+            border-radius: 12px;
+            padding: 12px 14px;
+        }
+
+        .observation-meta-card span {
+            display: block;
+            color: #66758f;
+            font-size: 12px;
+            margin-bottom: 6px;
+        }
+
+        .observation-meta-card strong {
+            display: block;
+            color: #24344d;
+            font-size: 15px;
+            line-height: 1.45;
+            word-break: break-word;
+        }
+
+        .data-toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .data-link {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 10px 14px;
+            border-radius: 999px;
+            border: 1px solid #c6d5f7;
+            background: #f7f9fe;
+            color: #3656aa;
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        .data-link:hover {
+            background: #eef3ff;
+        }
+
         .list-item strong,
         .image-card strong {
             display: block;
@@ -845,6 +947,10 @@
 
             .telemetry-line strong {
                 text-align: left;
+            }
+
+            .observation-meta-grid {
+                grid-template-columns: 1fr;
             }
         }
     </style>
@@ -1008,8 +1114,8 @@
             <div class="data-layout">
                 <div class="data-card">
                     <div class="data-section">
-                        <div class="data-section-title">Latest Telemetry</div>
-                        <pre id="telemetryJson">{}</pre>
+                        <div class="data-section-title">Received Observation Files</div>
+                        <div id="observationList" class="observation-list"></div>
                     </div>
                     <div class="data-section">
                         <div class="data-section-title">Recent Commands</div>
@@ -1018,6 +1124,20 @@
                 </div>
 
                 <div class="data-card">
+                    <div class="data-section">
+                        <div class="data-toolbar">
+                            <div class="data-section-title">Selected Observation File</div>
+                            <a id="openObservationRaw" class="data-link hidden" href="#" target="_blank" rel="noopener">Open raw JSON</a>
+                        </div>
+                        <div id="observationMeta" class="observation-meta-grid"></div>
+                        <div class="observation-viewer">
+                            <pre id="observationJson">{}</pre>
+                        </div>
+                    </div>
+                    <div class="data-section">
+                        <div class="data-section-title">Latest Telemetry Snapshot</div>
+                        <pre id="telemetryJson">{}</pre>
+                    </div>
                     <div class="data-section">
                         <div class="data-section-title">Recent Images</div>
                         <div id="recentImages" class="image-grid"></div>
@@ -1133,6 +1253,12 @@
         let streamPlaybackState = "Idle";
         let pageClosing = false;
         let lastLoadError = "";
+        let observationSummaries = [];
+        let selectedObservationId = null;
+        let selectedObservationDetail = null;
+        let observationError = "";
+        let observationDeviceId = null;
+        let observationRequestToken = 0;
         const EMPTY_ENVIRONMENTAL_DETECTIONS = {
             cracks: [],
             signs: []
@@ -1745,6 +1871,142 @@
             document.getElementById("telemetryJson").textContent = JSON.stringify(payload, null, 2);
         }
 
+        async function loadObservationData(forceSelection = false) {
+            const deviceId = selectedDeviceId || appState.default_device_id || null;
+            if (!deviceId) {
+                observationDeviceId = null;
+                observationSummaries = [];
+                selectedObservationId = null;
+                selectedObservationDetail = null;
+                observationError = "";
+                return;
+            }
+
+            if (observationDeviceId !== deviceId) {
+                observationDeviceId = deviceId;
+                observationSummaries = [];
+                selectedObservationId = null;
+                selectedObservationDetail = null;
+                observationError = "";
+            }
+
+            try {
+                const observations = await fetchJson(`${API_BASE}/devices/${encodeURIComponent(deviceId)}/observations`);
+                observationSummaries = Array.isArray(observations) ? observations : [];
+                observationError = "";
+
+                const knownIds = new Set(observationSummaries.map(item => item.id));
+                if (forceSelection || !selectedObservationId || !knownIds.has(selectedObservationId)) {
+                    selectedObservationId = observationSummaries[0] ? observationSummaries[0].id : null;
+                    selectedObservationDetail = null;
+                }
+
+                if (!selectedObservationId) {
+                    selectedObservationDetail = null;
+                    return;
+                }
+
+                const needsDetail = !selectedObservationDetail
+                    || !selectedObservationDetail.observation
+                    || selectedObservationDetail.observation.id !== selectedObservationId;
+                if (!needsDetail) {
+                    return;
+                }
+
+                const requestToken = ++observationRequestToken;
+                const detail = await fetchJson(
+                    `${API_BASE}/devices/${encodeURIComponent(deviceId)}/observations/${encodeURIComponent(selectedObservationId)}`
+                );
+
+                if (requestToken !== observationRequestToken || observationDeviceId !== deviceId) {
+                    return;
+                }
+                selectedObservationDetail = detail;
+            } catch (error) {
+                observationSummaries = [];
+                selectedObservationDetail = null;
+                observationError = error.message;
+            }
+        }
+
+        function renderObservationList() {
+            const list = document.getElementById("observationList");
+            list.innerHTML = "";
+
+            if (observationError) {
+                list.innerHTML = `<div class="placeholder-panel">Unable to load observation history.<br>${esc(observationError)}</div>`;
+                return;
+            }
+
+            if (!observationSummaries.length) {
+                list.innerHTML = '<div class="placeholder-panel">No saved observation files for this device yet.</div>';
+                return;
+            }
+
+            observationSummaries.forEach(item => {
+                const summary = item.summary || {};
+                const button = document.createElement("button");
+                button.type = "button";
+                button.className = `observation-item${item.id === selectedObservationId ? " active" : ""}`;
+                button.innerHTML = `
+                    <strong>${esc(item.filename)}</strong>
+                    <div class="observation-primary">Plate: ${esc(summary.plate_text || "No confirmed plate yet")}</div>
+                    <div>Seen: ${esc(timeText(summary.timestamp || item.created_at))}</div>
+                    <div>Confidence: ${esc(formatConfidence(summary.confidence))}</div>
+                    <div>Space: ${esc(summary.space_id || "-")}</div>
+                    <div>Detections: ${esc(String(summary.detection_count ?? 0))}</div>
+                `;
+                button.addEventListener("click", async () => {
+                    if (item.id === selectedObservationId) {
+                        return;
+                    }
+                    selectedObservationId = item.id;
+                    selectedObservationDetail = null;
+                    renderDataTab();
+                    await loadObservationData(false);
+                    renderDataTab();
+                });
+                list.appendChild(button);
+            });
+        }
+
+        function renderObservationDetail() {
+            const meta = document.getElementById("observationMeta");
+            const pre = document.getElementById("observationJson");
+            const rawLink = document.getElementById("openObservationRaw");
+
+            if (!selectedObservationDetail || !selectedObservationDetail.observation) {
+                rawLink.classList.add("hidden");
+                rawLink.removeAttribute("href");
+                meta.innerHTML = "";
+                pre.textContent = observationError
+                    ? `Observation error: ${observationError}`
+                    : "Select an observation file from the list to inspect the raw received payload.";
+                return;
+            }
+
+            const observation = selectedObservationDetail.observation;
+            const summary = observation.summary || {};
+            meta.innerHTML = [
+                ["File", observation.filename],
+                ["Plate", summary.plate_text || "-"],
+                ["Confidence", formatConfidence(summary.confidence)],
+                ["Space", summary.space_id || "-"],
+                ["Seen", timeText(summary.timestamp || observation.created_at)],
+                ["Source", observation.source || "-"],
+            ].map(([label, value]) => `
+                <div class="observation-meta-card">
+                    <span>${esc(label)}</span>
+                    <strong>${esc(value)}</strong>
+                </div>
+            `).join("");
+
+            rawLink.href = observation.raw_url || "#";
+            rawLink.textContent = `Open ${observation.filename}`;
+            rawLink.classList.remove("hidden");
+            pre.textContent = JSON.stringify(selectedObservationDetail.document || {}, null, 2);
+        }
+
         function handlePlayerStateChange(playerState) {
             const connectionState = humanizeState(playerState.connectionState || playerState.phase);
             const detail = playerState.detail || humanizeState(playerState.phase);
@@ -2039,6 +2301,8 @@
 
         function renderDataTab() {
             const device = getDevice();
+            renderObservationList();
+            renderObservationDetail();
             renderTelemetryJson(device);
 
             const commands = document.getElementById("commandsList");
@@ -2106,6 +2370,8 @@
                 if (latestMapData) {
                     mapData = latestMapData;
                 }
+                chooseDevice();
+                await loadObservationData();
                 isBackendConnected = true;
                 lastLoadError = "";
             } catch (error) {
@@ -2209,8 +2475,13 @@
             }
         }
 
-        document.getElementById("deviceSelect").addEventListener("change", event => {
+        document.getElementById("deviceSelect").addEventListener("change", async event => {
             selectedDeviceId = event.target.value || null;
+            observationDeviceId = null;
+            selectedObservationId = null;
+            selectedObservationDetail = null;
+            renderAll();
+            await loadObservationData(true);
             renderAll();
         });
 
