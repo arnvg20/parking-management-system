@@ -23,6 +23,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from fastapi.staticfiles import StaticFiles
 
 from backend_state import BackendState
+from gps_mapping import build_segment_mapper
 from Tab1 import (
     environmental_detections,
     find_matching_space,
@@ -56,6 +57,14 @@ state = BackendState(
     find_matching_space,
     runtime_dir=settings.runtime_dir,
     default_device_id=settings.default_device_id,
+    route_mapper=build_segment_mapper(ref_route_kml_path=settings.route_reference_kml_path)
+    if settings.gps_route_calibration_enabled
+    else None,
+    gps_route_calibration_enabled=settings.gps_route_calibration_enabled,
+    route_mapping_max_distance_meters=settings.route_mapping_max_distance_meters,
+    bbox_area_priority_enabled=settings.bbox_area_priority_enabled,
+    bbox_area_priority_weight=settings.bbox_area_priority_weight,
+    bbox_area_similarity_ratio=settings.bbox_area_similarity_ratio,
 )
 
 

@@ -1,4 +1,5 @@
 import copy
+from functools import cmp_to_key
 import json
 import math
 import queue
@@ -10,6 +11,7 @@ from pathlib import Path
 
 from werkzeug.utils import secure_filename
 
+from gps_mapping import build_segment_mapper
 from jetson_contract import normalize_robot_status, parse_timestamp, select_latest_detection
 
 
@@ -46,13 +48,28 @@ def first_present(*values):
 class BackendState:
     OBSERVATION_HISTORY_LIMIT = 80
 
-    def __init__(self, parking_spaces, find_matching_space, runtime_dir="runtime_data", default_device_id="jetson-01"):
+    def __init__(
+        self,
+        parking_spaces,
+        find_matching_space,
+        runtime_dir="runtime_data",
+        default_device_id="jetson-01",
+        route_mapper=None,
+        gps_route_calibration_enabled=True,
+        route_mapping_max_distance_meters=30,
+        bbox_area_priority_enabled=True,
+        bbox_area_priority_weight=1.0,
+        bbox_area_similarity_ratio=0.1,
+    ):
         self.lock = threading.RLock()
         self.command_condition = threading.Condition(self.lock)
         self.frame_condition = threading.Condition(self.lock)
 
         self.parking_spaces = parking_spaces
         self.find_matching_space = find_matching_space
+        self.route_mapper = route_mapper if gps_route_calibration_enabled else None
+        if gps_route_calibration_enabled and self.route_mapper is None:
+            self.route_mapper = build_segment_mapper()
         self.devices = {}
         self.commands = []
         self.uploads = {}
@@ -61,6 +78,14 @@ class BackendState:
         self.command_sequence = 1
         self.default_device_id = default_device_id
         self.space_resolution_offset_meters = 12
+        self.route_mapping_max_distance_meters = (
+            max(0.0, float(route_mapping_max_distance_meters))
+            if route_mapping_max_distance_meters is not None
+            else None
+        )
+        self.bbox_area_priority_enabled = bool(bbox_area_priority_enabled)
+        self.bbox_area_priority_weight = max(0.0, float(bbox_area_priority_weight or 0))
+        self.bbox_area_similarity_ratio = max(0.0, float(bbox_area_similarity_ratio or 0))
 
         self.runtime_dir = Path(runtime_dir)
         self.images_dir = self.runtime_dir / "images"
@@ -560,18 +585,21 @@ class BackendState:
             applied_spaces = []
             enriched_detections = []
             detections = telemetry.get("plate_detections") or []
-            sorted_detections = sorted(
-                detections,
-                key=lambda item: parse_timestamp(item.get("detected_at")) or datetime.min.replace(tzinfo=timezone.utc),
-            )
-            for detection in sorted_detections:
-                enriched_detection, changed_spaces = self._apply_plate_detection_locked(
-                    device_id,
-                    detection,
-                    telemetry_timestamp=telemetry.get("timestamp"),
-                )
-                enriched_detections.append(enriched_detection)
-                applied_spaces.extend(changed_spaces)
+            prepared_detections = self._prepare_detection_batch_locked(detections, telemetry.get("timestamp"))
+            for detection_batch in self._group_prepared_detections_locked(prepared_detections):
+                reserved_space_ids = set()
+                for prepared_detection in self._sort_detection_batch_locked(detection_batch):
+                    enriched_detection, changed_spaces = self._apply_plate_detection_locked(
+                        device_id,
+                        prepared_detection["detection"],
+                        telemetry_timestamp=telemetry.get("timestamp"),
+                        reserved_space_ids=reserved_space_ids,
+                    )
+                    resolved_space_id = enriched_detection.get("resolved_space_id")
+                    if resolved_space_id:
+                        reserved_space_ids.add(resolved_space_id)
+                    enriched_detections.append(enriched_detection)
+                    applied_spaces.extend(changed_spaces)
 
             stored_telemetry = copy.deepcopy(telemetry or {})
             stored_telemetry["plate_detections"] = enriched_detections
@@ -623,23 +651,171 @@ class BackendState:
 
         return closest_space_id, closest_distance
 
-    def _resolve_space_id_locked(self, latitude, longitude):
+    def _map_coordinate_locked(self, latitude, longitude):
+        if latitude is None or longitude is None or not self.route_mapper:
+            return latitude, longitude
+        return self.route_mapper.map_point(
+            latitude,
+            longitude,
+            max_distance_meters=self.route_mapping_max_distance_meters,
+        )
+
+    def _bbox_metrics_locked(self, detection):
+        bbox = detection.get("bbox_xyxy") if isinstance(detection, dict) else None
+        if not isinstance(bbox, dict):
+            return None, None, None
+
+        x1 = bbox.get("x1")
+        y1 = bbox.get("y1")
+        x2 = bbox.get("x2")
+        y2 = bbox.get("y2")
+        if None in {x1, y1, x2, y2}:
+            return None, None, None
+
+        width = max(0.0, x2 - x1)
+        height = max(0.0, y2 - y1)
+        return width, height, width * height
+
+    def _bbox_priority_score_locked(self, bbox_area):
+        if not self.bbox_area_priority_enabled or self.bbox_area_priority_weight <= 0 or bbox_area is None:
+            return None
+        return bbox_area * self.bbox_area_priority_weight
+
+    def _annotate_detection_locked(self, detection, telemetry_timestamp=None):
+        normalized_detection = copy.deepcopy(detection or {})
+        gps = normalized_detection.get("gps") if isinstance(normalized_detection.get("gps"), dict) else {}
+        raw_latitude = gps.get("lat")
+        raw_longitude = gps.get("lon")
+        mapped_latitude, mapped_longitude = self._map_coordinate_locked(raw_latitude, raw_longitude)
+        bbox_width, bbox_height, bbox_area = self._bbox_metrics_locked(normalized_detection)
+
+        # Preserve raw GPS and add a calibrated coordinate so stall lookup can
+        # use the route-mapped position without changing ingestion payloads.
+        normalized_detection["mapped_gps"] = {
+            "lat": mapped_latitude,
+            "lon": mapped_longitude,
+        }
+        normalized_detection["bbox_metrics"] = {
+            "width": bbox_width,
+            "height": bbox_height,
+            "area": bbox_area,
+        }
+        normalized_detection["bbox_area_priority_score"] = self._bbox_priority_score_locked(bbox_area)
+        if not normalized_detection.get("detected_at"):
+            normalized_detection["detected_at"] = telemetry_timestamp
+        return normalized_detection
+
+    def _prepare_detection_batch_locked(self, detections, telemetry_timestamp=None):
+        prepared_detections = []
+        fallback_timestamp = parse_timestamp(telemetry_timestamp) or datetime.min.replace(tzinfo=timezone.utc)
+
+        for sequence_index, detection in enumerate(detections):
+            annotated_detection = self._annotate_detection_locked(detection, telemetry_timestamp=telemetry_timestamp)
+            detected_at = parse_timestamp(annotated_detection.get("detected_at")) or fallback_timestamp
+            prepared_detections.append(
+                {
+                    "detection": annotated_detection,
+                    "batch_key": (
+                        annotated_detection.get("image_id") or "",
+                        annotated_detection.get("detected_at") or telemetry_timestamp or "",
+                        annotated_detection.get("source_camera") or "",
+                    ),
+                    "detected_at": detected_at,
+                    "sequence_index": sequence_index,
+                }
+            )
+
+        return sorted(prepared_detections, key=lambda item: (item["detected_at"], item["sequence_index"]))
+
+    def _group_prepared_detections_locked(self, prepared_detections):
+        grouped_detections = {}
+        for prepared_detection in prepared_detections:
+            grouped_detections.setdefault(prepared_detection["batch_key"], []).append(prepared_detection)
+        return list(grouped_detections.values())
+
+    def _compare_detection_priority_locked(self, left_item, right_item):
+        left_score = (left_item.get("detection") or {}).get("bbox_area_priority_score")
+        right_score = (right_item.get("detection") or {}).get("bbox_area_priority_score")
+
+        if left_score is None or right_score is None:
+            return 0
+
+        max_score = max(left_score, right_score)
+        if max_score <= 0:
+            return 0
+
+        relative_gap = abs(left_score - right_score) / max_score
+        if relative_gap <= self.bbox_area_similarity_ratio:
+            return 0
+
+        if left_score > right_score:
+            return -1
+        if left_score < right_score:
+            return 1
+        return 0
+
+    def _sort_detection_batch_locked(self, prepared_detections):
+        ordered_detections = sorted(prepared_detections, key=lambda item: item["sequence_index"])
+        if not self.bbox_area_priority_enabled or self.bbox_area_priority_weight <= 0:
+            return ordered_detections
+        return sorted(ordered_detections, key=cmp_to_key(self._compare_detection_priority_locked))
+
+    def _find_candidate_spaces_locked(self, latitude, longitude):
         if latitude is None or longitude is None:
-            return None, None
+            return [], None
 
         direct_match = self.find_matching_space(latitude, longitude, offset_meters=self.space_resolution_offset_meters)
-        if direct_match:
-            distance = self._distance_between_points_locked(
+        direct_distance = None
+        if direct_match and direct_match in self.parking_spaces:
+            direct_distance = self._distance_between_points_locked(
                 latitude,
                 longitude,
                 self.parking_spaces[direct_match]["latitude"],
                 self.parking_spaces[direct_match]["longitude"],
             )
-            return direct_match, distance
 
-        closest_space_id, closest_distance = self._find_nearest_space_locked(latitude, longitude)
-        if closest_space_id and closest_distance is not None and closest_distance <= self.space_resolution_offset_meters:
-            return closest_space_id, closest_distance
+        candidates = []
+        for candidate_space_id, values in self.parking_spaces.items():
+            candidate_distance = self._distance_between_points_locked(
+                latitude,
+                longitude,
+                values["latitude"],
+                values["longitude"],
+            )
+            if candidate_distance <= self.space_resolution_offset_meters:
+                candidates.append(
+                    {
+                        "space_id": candidate_space_id,
+                        "distance_meters": candidate_distance,
+                    }
+                )
+
+        if direct_distance is not None and all(item["space_id"] != direct_match for item in candidates):
+            candidates.append({"space_id": direct_match, "distance_meters": direct_distance})
+
+        candidates.sort(
+            key=lambda item: (
+                item["space_id"] != direct_match,
+                item["distance_meters"],
+                item["space_id"],
+            )
+        )
+
+        closest_distance = candidates[0]["distance_meters"] if candidates else None
+        if closest_distance is None:
+            _, closest_distance = self._find_nearest_space_locked(latitude, longitude)
+
+        return candidates, closest_distance
+
+    def _resolve_space_id_locked(self, latitude, longitude, reserved_space_ids=None):
+        if latitude is None or longitude is None:
+            return None, None
+
+        reserved_space_ids = set(reserved_space_ids or [])
+        candidates, closest_distance = self._find_candidate_spaces_locked(latitude, longitude)
+        for candidate in candidates:
+            if candidate["space_id"] not in reserved_space_ids:
+                return candidate["space_id"], candidate["distance_meters"]
         return None, closest_distance
 
     def _find_space_for_plate_locked(self, plate_text):
@@ -667,16 +843,23 @@ class BackendState:
             return True
         return current_time in (None, "")
 
-    def _apply_plate_detection_locked(self, device_id, detection, telemetry_timestamp=None):
+    def _apply_plate_detection_locked(self, device_id, detection, telemetry_timestamp=None, reserved_space_ids=None):
         telemetry_timestamp = telemetry_timestamp or utcnow_iso()
-        normalized_detection = copy.deepcopy(detection or {})
+        normalized_detection = self._annotate_detection_locked(detection, telemetry_timestamp=telemetry_timestamp)
         gps = normalized_detection.get("gps") or {}
-        latitude = gps.get("lat")
-        longitude = gps.get("lon")
+        raw_latitude = gps.get("lat")
+        raw_longitude = gps.get("lon")
+        mapped_gps = normalized_detection.get("mapped_gps") if isinstance(normalized_detection.get("mapped_gps"), dict) else {}
+        latitude = mapped_gps.get("lat")
+        longitude = mapped_gps.get("lon")
         detected_at = normalized_detection.get("detected_at") or telemetry_timestamp
         plate_text = normalized_detection.get("plate_text")
 
-        resolved_space_id, resolved_distance_meters = self._resolve_space_id_locked(latitude, longitude)
+        resolved_space_id, resolved_distance_meters = self._resolve_space_id_locked(
+            latitude,
+            longitude,
+            reserved_space_ids=reserved_space_ids,
+        )
         normalized_detection["resolved_space_id"] = resolved_space_id
         normalized_detection["resolved_distance_meters"] = (
             round(resolved_distance_meters, 3) if resolved_distance_meters is not None else None
@@ -703,30 +886,42 @@ class BackendState:
             "license_plate": plate_text,
             "time": detected_at,
             "detected_at": detected_at,
+            # Space assignment uses calibrated GPS because the robot's raw GNSS
+            # path drifts. Keep raw GPS separately for debugging and review.
             "latitude": latitude,
             "longitude": longitude,
             "gps": {
+                "lat": raw_latitude,
+                "lon": raw_longitude,
+            },
+            "mapped_gps": {
                 "lat": latitude,
                 "lon": longitude,
             },
+            "bbox_metrics": normalized_detection.get("bbox_metrics"),
+            # Bounding-box area is only a soft proximity signal. It can be
+            # disabled or reweighted later without changing the assignment flow.
+            "bbox_area_priority_score": normalized_detection.get("bbox_area_priority_score"),
             "confidence": normalized_detection.get("confidence"),
             "device_id": device_id,
             "image_id": normalized_detection.get("image_id"),
             "event_id": normalized_detection.get("event_id"),
             "source_camera": normalized_detection.get("source_camera"),
             "resolved_space_id": resolved_space_id,
+            "resolved_distance_meters": normalized_detection.get("resolved_distance_meters"),
         }
         changed_spaces.append(resolved_space_id)
         return normalized_detection, changed_spaces
 
     def _apply_parking_update_locked(self, update):
         space_id = update.get("space_id")
+        raw_latitude = update.get("latitude")
+        raw_longitude = update.get("longitude")
+        mapped_latitude, mapped_longitude = self._map_coordinate_locked(raw_latitude, raw_longitude)
         if not space_id:
-            latitude = update.get("latitude")
-            longitude = update.get("longitude")
-            if latitude is None or longitude is None:
+            if mapped_latitude is None or mapped_longitude is None:
                 return None
-            space_id, _ = self._resolve_space_id_locked(latitude, longitude)
+            space_id, _ = self._resolve_space_id_locked(mapped_latitude, mapped_longitude)
 
         if not space_id or space_id not in self.parking_spaces:
             return None
@@ -740,11 +935,15 @@ class BackendState:
                 "license_plate": update.get("license_plate"),
                 "time": captured_at,
                 "detected_at": captured_at,
-                "latitude": update.get("latitude"),
-                "longitude": update.get("longitude"),
+                "latitude": mapped_latitude,
+                "longitude": mapped_longitude,
                 "gps": {
-                    "lat": update.get("latitude"),
-                    "lon": update.get("longitude"),
+                    "lat": raw_latitude,
+                    "lon": raw_longitude,
+                },
+                "mapped_gps": {
+                    "lat": mapped_latitude,
+                    "lon": mapped_longitude,
                 },
                 "confidence": update.get("confidence"),
                 "device_id": update.get("device_id"),

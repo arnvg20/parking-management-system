@@ -24,6 +24,13 @@ def _normalize_stream_path(value: str) -> str:
     return normalized or "mystream"
 
 
+def _env_path(name: str) -> Path | None:
+    raw_value = os.getenv(name)
+    if not raw_value:
+        return None
+    return Path(raw_value).expanduser()
+
+
 @dataclass(frozen=True)
 class Settings:
     host: str
@@ -37,6 +44,12 @@ class Settings:
     demo_telemetry_enabled: bool
     demo_telemetry_interval_seconds: float
     request_timeout_seconds: float
+    gps_route_calibration_enabled: bool
+    route_reference_kml_path: Path | None
+    route_mapping_max_distance_meters: float
+    bbox_area_priority_enabled: bool
+    bbox_area_priority_weight: float
+    bbox_area_similarity_ratio: float
     static_dir: Path
     runtime_dir: Path
 
@@ -54,6 +67,12 @@ class Settings:
             demo_telemetry_enabled=_env_flag("DEMO_TELEMETRY_ENABLED", False),
             demo_telemetry_interval_seconds=float(os.getenv("DEMO_TELEMETRY_INTERVAL_SECONDS", "1.5")),
             request_timeout_seconds=float(os.getenv("MEDIA_MTX_REQUEST_TIMEOUT_SECONDS", "10")),
+            gps_route_calibration_enabled=_env_flag("GPS_ROUTE_CALIBRATION_ENABLED", True),
+            route_reference_kml_path=_env_path("GPS_ROUTE_REFERENCE_KML_PATH"),
+            route_mapping_max_distance_meters=float(os.getenv("GPS_ROUTE_CALIBRATION_MAX_DISTANCE_METERS", "30")),
+            bbox_area_priority_enabled=_env_flag("BBOX_AREA_PRIORITY_ENABLED", True),
+            bbox_area_priority_weight=float(os.getenv("BBOX_AREA_PRIORITY_WEIGHT", "1.0")),
+            bbox_area_similarity_ratio=float(os.getenv("BBOX_AREA_SIMILARITY_RATIO", "0.1")),
             static_dir=Path(__file__).resolve().parent / "static",
             runtime_dir=BASE_DIR / "runtime_data",
         )
