@@ -1,0 +1,21 @@
+# MediaMTX sample configuration for this website stack.
+# Put your EC2 public IP or domain in webrtcAdditionalHosts so browser ICE candidates
+# point to an address that remote viewers can actually reach.
+
+rtmp: yes
+rtmpAddress: :1935
+
+webrtc: yes
+webrtcAddress: :8889
+webrtcLocalUDPAddress: :8189
+
+# Enable TCP fallback if some client networks block UDP.
+webrtcLocalTCPAddress: :8189
+
+webrtcAdditionalHosts:
+  - YOUR_EC2_PUBLIC_IP_OR_DOMAIN
+
+paths:
+  # Match MEDIA_MTX_STREAM_PATH in .env
+  jetson-01:
+    source: publisher
