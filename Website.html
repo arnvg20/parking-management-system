@@ -190,6 +190,10 @@
             background: #d32f2f;
         }
 
+        .legend-swatch.uncertain {
+            background: #f9a825;
+        }
+
         .legend-swatch.section {
             background: #1a73e8;
         }
@@ -383,6 +387,10 @@
 
         .status-color.occupied {
             background: #f44336;
+        }
+
+        .status-color.uncertain {
+            background: #f9a825;
         }
 
         .status-color.crack {
@@ -985,6 +993,7 @@
                         <div class="legend-chip"><span class="legend-swatch section"></span>Section boundary</div>
                         <div class="legend-chip"><span class="legend-swatch available"></span>Available space</div>
                         <div class="legend-chip"><span class="legend-swatch occupied"></span>Occupied space</div>
+                        <div class="legend-chip"><span class="legend-swatch uncertain"></span>Uncertain space</div>
                     </div>
                     <div id="lotMap" class="lot-map"></div>
                 </div>
@@ -1008,6 +1017,10 @@
                 <div class="status-item">
                     <span class="status-color occupied"></span>
                     <strong>Occupied: <span id="occupiedCount">0</span></strong>
+                </div>
+                <div class="status-item">
+                    <span class="status-color uncertain"></span>
+                    <strong>Uncertain: <span id="uncertainCount">0</span></strong>
                 </div>
                 <div class="status-item">
                     <strong>Total: <span id="totalCount">0</span></strong>
@@ -1192,6 +1205,11 @@
                 <div class="modal-header">Parking Space <span id="spaceIdDisplay"></span></div>
 
                 <div class="modal-item">
+                    <div class="modal-label">Resolved Status</div>
+                    <div class="modal-value" id="spaceStatusDisplay">-</div>
+                </div>
+
+                <div class="modal-item">
                     <div class="modal-label">License Plate</div>
                     <div class="modal-value" id="licensePlateDisplay">-</div>
                 </div>
@@ -1212,8 +1230,18 @@
                 </div>
 
                 <div class="modal-item">
+                    <div class="modal-label">Decision Confidence</div>
+                    <div class="modal-value" id="decisionConfidenceDisplay">-</div>
+                </div>
+
+                <div class="modal-item">
                     <div class="modal-label">Source Device</div>
                     <div class="modal-value" id="deviceIdDisplay">-</div>
+                </div>
+
+                <div class="modal-item">
+                    <div class="modal-label">Decision Reason</div>
+                    <div class="modal-value" id="decisionReasonDisplay">-</div>
                 </div>
             </div>
         </div>
@@ -1348,11 +1376,52 @@
             });
         }
 
+        function normalizeSpaceStatus(spaceData) {
+            if (spaceData && typeof spaceData.status === "string" && spaceData.status.trim()) {
+                return spaceData.status.trim().toUpperCase();
+            }
+            return spaceData && spaceData.occupied ? "OCCUPIED" : "EMPTY";
+        }
+
+        function humanizeSpaceStatus(status) {
+            switch ((status || "").toUpperCase()) {
+                case "OCCUPIED":
+                    return "Occupied";
+                case "UNCERTAIN":
+                    return "Uncertain";
+                default:
+                    return "Empty";
+            }
+        }
+
+        function describeDecisionReason(reason) {
+            const labels = {
+                ambiguous_location: "Location is ambiguous between nearby spaces.",
+                competing_detection_for_nearby_spaces: "Nearby detections are competing for this space.",
+                insufficient_temporal_consensus: "Waiting for repeated consistent reads.",
+                no_valid_detection: "No valid detection supports this space right now.",
+                no_recent_valid_detection: "Recent supporting detections expired.",
+                legacy_empty_update: "Legacy empty update cleared the previous state.",
+                manual_toggle: "Manually set from the website."
+            };
+
+            if (!reason) {
+                return "Resolved with stable backend evidence.";
+            }
+            return labels[reason] || reason.replace(/_/g, " ");
+        }
+
         function spaceStyle(spaceData) {
+            const status = normalizeSpaceStatus(spaceData);
+            const fillColor = status === "OCCUPIED"
+                ? "#d32f2f"
+                : status === "UNCERTAIN"
+                    ? "#f9a825"
+                    : "#2e7d32";
             return {
                 color: "#ffffff",
                 weight: 1,
-                fillColor: spaceData.occupied ? "#d32f2f" : "#2e7d32",
+                fillColor,
                 fillOpacity: 0.78
             };
         }
@@ -1479,10 +1548,23 @@
             spaceLayerGroup.clearLayers();
 
             Object.entries(spaces || {}).forEach(([spaceId, spaceData]) => {
+                const status = normalizeSpaceStatus(spaceData);
+                const tooltipLines = [
+                    `${spaceId} - ${humanizeSpaceStatus(status)}`
+                ];
+                if (status === "OCCUPIED" && spaceData.vehicle_data && spaceData.vehicle_data.license_plate) {
+                    tooltipLines.push(`Plate: ${esc(spaceData.vehicle_data.license_plate)}`);
+                } else if (status === "UNCERTAIN" && spaceData.decision_reason) {
+                    tooltipLines.push(esc(describeDecisionReason(spaceData.decision_reason)));
+                }
+                if (typeof spaceData.decision_confidence === "number") {
+                    tooltipLines.push(`Confidence: ${formatConfidence(spaceData.decision_confidence)}`);
+                }
+
                 const polygon = L.polygon(toLatLngs(spaceData.polygon), spaceStyle(spaceData))
                     .addTo(spaceLayerGroup)
                     .bindTooltip(
-                        `${spaceId} - ${spaceData.occupied ? "Occupied" : "Available"}`,
+                        tooltipLines.join("<br>"),
                         {
                             direction: "top",
                             sticky: true,
@@ -1490,7 +1572,7 @@
                         }
                     );
 
-                if (spaceData.occupied) {
+                if (status === "OCCUPIED" && spaceData.vehicle_data) {
                     polygon.on("click", () => showVehicleInfo(spaceId));
                 }
             });
@@ -1512,14 +1594,16 @@
                 .sort(([leftId], [rightId]) => leftId.localeCompare(rightId))
                 .map(([sectionId, sectionData]) => {
                     const sectionSpaces = Object.entries(spaces || {}).filter(([, space]) => space.section_id === sectionId);
-                    const occupied = sectionSpaces.filter(([, space]) => space.occupied).length;
+                    const occupied = sectionSpaces.filter(([, space]) => normalizeSpaceStatus(space) === "OCCUPIED").length;
+                    const uncertain = sectionSpaces.filter(([, space]) => normalizeSpaceStatus(space) === "UNCERTAIN").length;
                     const total = sectionSpaces.length;
+                    const available = Math.max(total - occupied - uncertain, 0);
 
                     return `
                         <div class="section-card">
                             <h3>${esc(sectionData.name)}</h3>
                             <div class="section-meta">
-                                ${occupied} occupied / ${Math.max(total - occupied, 0)} available<br>
+                                ${occupied} occupied / ${available} available / ${uncertain} uncertain<br>
                                 ${total} mapped stalls
                             </div>
                         </div>
@@ -1718,6 +1802,7 @@
             const summary = appState.summary || {};
             document.getElementById("occupiedCount").textContent = summary.occupied_spaces ?? 0;
             document.getElementById("availableCount").textContent = summary.available_spaces ?? 0;
+            document.getElementById("uncertainCount").textContent = summary.uncertain_spaces ?? 0;
             document.getElementById("totalCount").textContent = summary.total_spaces ?? 0;
         }
 
@@ -1952,6 +2037,7 @@
                     <strong>${esc(item.filename)}</strong>
                     <div class="observation-primary">Plate: ${esc(summary.plate_text || "No confirmed plate yet")}</div>
                     <div>Seen: ${esc(timeText(summary.timestamp || item.created_at))}</div>
+                    <div>Status: ${esc(humanizeSpaceStatus(summary.space_status || "EMPTY"))}</div>
                     <div>Confidence: ${esc(formatConfidence(summary.confidence))}</div>
                     <div>Space: ${esc(summary.space_id || "-")}</div>
                     <div>Detections: ${esc(String(summary.detection_count ?? 0))}</div>
@@ -1989,6 +2075,7 @@
             const summary = observation.summary || {};
             meta.innerHTML = [
                 ["File", observation.filename],
+                ["Status", humanizeSpaceStatus(summary.space_status || "EMPTY")],
                 ["Plate", summary.plate_text || "-"],
                 ["Confidence", formatConfidence(summary.confidence)],
                 ["Space", summary.space_id || "-"],
@@ -2431,17 +2518,21 @@
         }
 
         function showVehicleInfo(spaceId) {
-            const vehicle = appState.parking_spaces[spaceId] ? appState.parking_spaces[spaceId].vehicle_data : null;
+            const space = appState.parking_spaces[spaceId] || null;
+            const vehicle = space ? space.vehicle_data : null;
             if (!vehicle) {
                 return;
             }
 
             document.getElementById("spaceIdDisplay").textContent = spaceId;
+            document.getElementById("spaceStatusDisplay").textContent = humanizeSpaceStatus(normalizeSpaceStatus(space));
             document.getElementById("licensePlateDisplay").textContent = vehicle.license_plate || "-";
             document.getElementById("latitudeDisplay").textContent = formatCoordinate(vehicle.latitude);
             document.getElementById("longitudeDisplay").textContent = formatCoordinate(vehicle.longitude);
             document.getElementById("timeDisplay").textContent = timeText(vehicle.time);
+            document.getElementById("decisionConfidenceDisplay").textContent = formatConfidence(space && typeof space.decision_confidence === "number" ? space.decision_confidence : vehicle.confidence);
             document.getElementById("deviceIdDisplay").textContent = vehicle.device_id || "-";
+            document.getElementById("decisionReasonDisplay").textContent = describeDecisionReason(space ? space.decision_reason : null);
             document.getElementById("vehicleModal").style.display = "block";
         }
 

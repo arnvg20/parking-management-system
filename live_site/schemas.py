@@ -27,6 +27,48 @@ class TelemetryUpdate(BaseModel):
     source: str | None = None
 
 
+class DetectionLocationPayload(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    lat: float
+    lon: float
+
+
+class PlateDetectionPayload(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    plate_read: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("plate_read", "detected_plate", "plate", "license_plate"),
+    )
+    time: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("time", "timestamp"),
+    )
+    location: DetectionLocationPayload | None = None
+    confidence_level: float | None = Field(
+        default=None,
+        validation_alias=AliasChoices("confidence_level", "confidence"),
+    )
+
+
+class JetsonTelemetryEnvelope(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    device_id: str | None = None
+    cpu: float | None = None
+    memory: float | None = None
+    temp_c: float | None = None
+    camera_on: bool | None = None
+    stream_enabled: bool | None = None
+    robot_status: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("robot_status", "status"),
+    )
+    timestamp: str | None = None
+    plate_detections: list[PlateDetectionPayload] = Field(default_factory=list)
+
+
 def empty_telemetry_snapshot() -> dict[str, object | None]:
     return {
         "latitude": None,

@@ -66,12 +66,22 @@ class BackendState:
 
         self._ensure_runtime_dirs()
         self._load_state()
+        self._ensure_parking_space_defaults()
         self.ensure_device(default_device_id, name="Jetson Primary")
 
     def _ensure_runtime_dirs(self):
         self.images_dir.mkdir(parents=True, exist_ok=True)
         self.frames_dir.mkdir(parents=True, exist_ok=True)
         self.observations_dir.mkdir(parents=True, exist_ok=True)
+
+    def _ensure_parking_space_defaults(self):
+        for values in self.parking_spaces.values():
+            occupied = bool(values.get("occupied"))
+            values.setdefault("status", "OCCUPIED" if occupied else "EMPTY")
+            values.setdefault("decision_confidence", 1.0 if occupied else 0.9)
+            values.setdefault("decision_reason", None if occupied else "no_valid_detection")
+            values.setdefault("source_detection_time", None)
+            values.setdefault("last_resolved_at", None)
 
     def _load_state(self):
         if not self.state_file.exists():
@@ -88,6 +98,13 @@ class BackendState:
                 continue
             self.parking_spaces[space_id]["occupied"] = bool(values.get("occupied"))
             self.parking_spaces[space_id]["vehicle_data"] = values.get("vehicle_data")
+            self.parking_spaces[space_id]["status"] = values.get("status") or (
+                "OCCUPIED" if values.get("occupied") else "EMPTY"
+            )
+            self.parking_spaces[space_id]["decision_confidence"] = values.get("decision_confidence")
+            self.parking_spaces[space_id]["decision_reason"] = values.get("decision_reason")
+            self.parking_spaces[space_id]["source_detection_time"] = values.get("source_detection_time")
+            self.parking_spaces[space_id]["last_resolved_at"] = values.get("last_resolved_at")
 
         self.devices = persisted.get("devices", {})
         self.commands = persisted.get("commands", [])
@@ -130,6 +147,11 @@ class BackendState:
                 space_id: {
                     "occupied": values["occupied"],
                     "vehicle_data": values["vehicle_data"],
+                    "status": values.get("status"),
+                    "decision_confidence": values.get("decision_confidence"),
+                    "decision_reason": values.get("decision_reason"),
+                    "source_detection_time": values.get("source_detection_time"),
+                    "last_resolved_at": values.get("last_resolved_at"),
                 }
                 for space_id, values in self.parking_spaces.items()
             },
@@ -219,17 +241,38 @@ class BackendState:
         telemetry = payload.get("telemetry") if isinstance(payload.get("telemetry"), dict) else payload
         telemetry = telemetry if isinstance(telemetry, dict) else {}
         detections = self._normalize_detection_items(telemetry)
+        resolution_items = telemetry.get("space_resolution") if isinstance(telemetry.get("space_resolution"), list) else []
         parking_updates = payload.get("parking_updates") or payload.get("events") or []
         parking_updates = [item for item in parking_updates if isinstance(item, dict)]
 
         primary_detection = detections[0] if detections else {}
+        primary_location = primary_detection.get("location") if isinstance(primary_detection.get("location"), dict) else {}
         primary_update = parking_updates[0] if parking_updates else {}
         lot_status = telemetry.get("lot_status") if isinstance(telemetry.get("lot_status"), dict) else {}
         plate_status = lot_status.get("plate") if isinstance(lot_status.get("plate"), dict) else {}
         gps_status = lot_status.get("gps") if isinstance(lot_status.get("gps"), dict) else {}
+        resolved_occupied = next(
+            (
+                item
+                for item in resolution_items
+                if isinstance(item, dict) and item.get("status") == "OCCUPIED" and item.get("plate_read")
+            ),
+            None,
+        )
+        resolved_candidate = resolved_occupied or next(
+            (item for item in resolution_items if isinstance(item, dict) and item.get("status")),
+            None,
+        )
+        resolved_location = (
+            resolved_candidate.get("location")
+            if isinstance(resolved_candidate, dict) and isinstance(resolved_candidate.get("location"), dict)
+            else {}
+        )
 
         plate_text = first_present(
+            resolved_occupied.get("plate_read") if resolved_occupied else None,
             primary_detection.get("plate_text"),
+            primary_detection.get("plate_read"),
             primary_detection.get("text"),
             primary_detection.get("license_plate"),
             telemetry.get("detected_plate"),
@@ -239,13 +282,17 @@ class BackendState:
             plate_status.get("text"),
         )
         confidence = first_present(
+            resolved_candidate.get("confidence") if resolved_candidate else None,
             primary_detection.get("confidence"),
+            primary_detection.get("confidence_level"),
             telemetry.get("confidence"),
             primary_update.get("confidence"),
             plate_status.get("confidence"),
         )
         timestamp = first_present(
+            resolved_candidate.get("source_detection_time") if resolved_candidate else None,
             primary_detection.get("timestamp"),
+            primary_detection.get("time"),
             telemetry.get("timestamp"),
             telemetry.get("sent_at_utc"),
             primary_update.get("captured_at"),
@@ -254,24 +301,33 @@ class BackendState:
             created_at,
         )
         latitude = first_present(
+            resolved_location.get("lat"),
             primary_detection.get("latitude"),
+            primary_location.get("lat"),
             telemetry.get("latitude"),
             telemetry.get("lat"),
             primary_update.get("latitude"),
             gps_status.get("lat"),
         )
         longitude = first_present(
+            resolved_location.get("lon"),
             primary_detection.get("longitude"),
+            primary_location.get("lon"),
             telemetry.get("longitude"),
             telemetry.get("lon"),
             primary_update.get("longitude"),
             gps_status.get("lon"),
         )
         space_id = first_present(
+            resolved_candidate.get("space_id") if resolved_candidate else None,
             primary_detection.get("space_id"),
             primary_update.get("space_id"),
             telemetry.get("space_id"),
             lot_status.get("space_id"),
+        )
+        space_status = first_present(
+            resolved_candidate.get("status") if resolved_candidate else None,
+            "OCCUPIED" if space_id and plate_text else None,
         )
         robot_status = first_present(
             telemetry.get("robot_status"),
@@ -287,6 +343,7 @@ class BackendState:
             "plate_text": plate_text,
             "confidence": confidence,
             "space_id": space_id,
+            "space_status": space_status,
             "latitude": latitude,
             "longitude": longitude,
             "robot_status": robot_status,
@@ -492,6 +549,7 @@ class BackendState:
     def get_system_snapshot(self):
         with self.lock:
             occupied_count = sum(1 for values in self.parking_spaces.values() if values["occupied"])
+            uncertain_count = sum(1 for values in self.parking_spaces.values() if values.get("status") == "UNCERTAIN")
             total_count = len(self.parking_spaces)
             return {
                 "server_time": utcnow_iso(),
@@ -502,7 +560,8 @@ class BackendState:
                 "summary": {
                     "total_spaces": total_count,
                     "occupied_spaces": occupied_count,
-                    "available_spaces": total_count - occupied_count,
+                    "uncertain_spaces": uncertain_count,
+                    "available_spaces": total_count - occupied_count - uncertain_count,
                 },
             }
 
@@ -558,6 +617,69 @@ class BackendState:
                 "updated_spaces": applied_spaces,
             }
 
+    def apply_space_decisions(self, device_id, space_decisions, telemetry=None):
+        telemetry = telemetry or {}
+        with self.lock:
+            if device_id not in self.devices:
+                self.devices[device_id] = self._device_template(device_id)
+
+            updated_spaces = []
+            for decision in space_decisions:
+                if hasattr(decision, "to_dict"):
+                    payload = decision.to_dict()
+                else:
+                    payload = dict(decision)
+
+                space_id = payload.get("space_id")
+                if not space_id or space_id not in self.parking_spaces:
+                    continue
+
+                status = payload.get("status") or "UNCERTAIN"
+                confidence = payload.get("confidence")
+                reason = payload.get("reason")
+                source_detection_time = payload.get("source_detection_time") or utcnow_iso()
+                location = payload.get("location") or {}
+
+                space = self.parking_spaces[space_id]
+                space["status"] = status
+                space["decision_confidence"] = confidence
+                space["decision_reason"] = reason
+                space["source_detection_time"] = source_detection_time
+                space["last_resolved_at"] = utcnow_iso()
+
+                if status == "OCCUPIED" and payload.get("plate_read"):
+                    space["occupied"] = True
+                    space["vehicle_data"] = {
+                        "license_plate": payload.get("plate_read"),
+                        "time": source_detection_time,
+                        "latitude": location.get("lat"),
+                        "longitude": location.get("lon"),
+                        "confidence": confidence,
+                        "device_id": device_id,
+                        "space_status": status,
+                        "reason": reason,
+                    }
+                else:
+                    space["occupied"] = False
+                    space["vehicle_data"] = None
+
+                updated_spaces.append(space_id)
+
+            device = self.devices[device_id]
+            device["last_seen_at"] = utcnow_iso()
+            device["last_telemetry"] = telemetry or {}
+            device["updated_at"] = utcnow_iso()
+
+            snapshot = self._device_snapshot_locked(device_id)
+            self._persist_state_locked()
+            self._emit_event_locked("device.updated", {"device_id": device_id})
+            if updated_spaces:
+                self._emit_event_locked("parking.updated", {"spaces": updated_spaces})
+            return {
+                "device": snapshot,
+                "updated_spaces": updated_spaces,
+            }
+
     def _apply_parking_update_locked(self, update):
         space_id = update.get("space_id")
         if not space_id:
@@ -574,6 +696,11 @@ class BackendState:
         captured_at = update.get("captured_at") or utcnow_iso()
 
         self.parking_spaces[space_id]["occupied"] = occupied
+        self.parking_spaces[space_id]["status"] = "OCCUPIED" if occupied else "EMPTY"
+        self.parking_spaces[space_id]["decision_confidence"] = update.get("confidence")
+        self.parking_spaces[space_id]["decision_reason"] = None if occupied else "legacy_empty_update"
+        self.parking_spaces[space_id]["source_detection_time"] = captured_at
+        self.parking_spaces[space_id]["last_resolved_at"] = utcnow_iso()
         if occupied:
             self.parking_spaces[space_id]["vehicle_data"] = {
                 "license_plate": update.get("license_plate"),
@@ -583,6 +710,8 @@ class BackendState:
                 "confidence": update.get("confidence"),
                 "device_id": update.get("device_id"),
                 "image_id": update.get("image_id"),
+                "space_status": "OCCUPIED",
+                "reason": None,
             }
         else:
             self.parking_spaces[space_id]["vehicle_data"] = None
@@ -607,13 +736,25 @@ class BackendState:
             current["occupied"] = not current["occupied"]
             if not current["occupied"]:
                 current["vehicle_data"] = None
+                current["status"] = "EMPTY"
+                current["decision_confidence"] = 1.0
+                current["decision_reason"] = "manual_toggle"
+                current["source_detection_time"] = utcnow_iso()
+                current["last_resolved_at"] = utcnow_iso()
             elif not current.get("vehicle_data"):
                 current["vehicle_data"] = {
                     "license_plate": "MANUAL",
                     "time": utcnow_iso(),
                     "latitude": current["latitude"],
                     "longitude": current["longitude"],
+                    "space_status": "OCCUPIED",
+                    "reason": "manual_toggle",
                 }
+                current["status"] = "OCCUPIED"
+                current["decision_confidence"] = 1.0
+                current["decision_reason"] = None
+                current["source_detection_time"] = current["vehicle_data"]["time"]
+                current["last_resolved_at"] = utcnow_iso()
 
             self._persist_state_locked()
             self._emit_event_locked("parking.updated", {"spaces": [space_id]})

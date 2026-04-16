@@ -1,0 +1,21 @@
+{
+  "device_id": "jetson-01",
+  "cpu": 0.83,
+  "memory": 0.72,
+  "temp_c": 57.0,
+  "camera_on": true,
+  "stream_enabled": true,
+  "robot_status": "Patrol",
+  "timestamp": "2026-04-16T15:32:10Z",
+  "plate_detections": [
+    {
+      "plate_read": "ABC1234",
+      "time": "2026-04-16T15:32:10Z",
+      "location": {
+        "lat": 43.0,
+        "lon": -79.00012
+      },
+      "confidence_level": 0.94
+    }
+  ]
+}

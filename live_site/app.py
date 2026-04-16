@@ -40,6 +40,7 @@ from .mediamtx import (
     rewrite_location_header,
 )
 from .schemas import TelemetryUpdate
+from .space_assignment import LotSpaceAssociationService
 from .telemetry import DemoTelemetryPublisher, TelemetryHub
 
 
@@ -57,6 +58,7 @@ state = BackendState(
     runtime_dir=settings.runtime_dir,
     default_device_id=settings.default_device_id,
 )
+lot_space_association = LotSpaceAssociationService(parking_spaces)
 
 
 @asynccontextmanager
@@ -119,8 +121,60 @@ def _resolve_device_id(
 
 def _normalize_frontend_telemetry(payload: dict[str, Any]) -> dict[str, Any]:
     telemetry_payload = payload.get("telemetry") if isinstance(payload.get("telemetry"), dict) else payload
-    parsed = TelemetryUpdate.model_validate(telemetry_payload or {})
+    space_resolution = (
+        telemetry_payload.get("space_resolution")
+        if isinstance(telemetry_payload.get("space_resolution"), list)
+        else []
+    )
+    plate_detections = (
+        telemetry_payload.get("plate_detections")
+        if isinstance(telemetry_payload.get("plate_detections"), list)
+        else []
+    )
+    resolved_decision = next(
+        (
+            item
+            for item in space_resolution
+            if isinstance(item, dict)
+            and item.get("status") == "OCCUPIED"
+            and item.get("plate_read")
+        ),
+        None,
+    )
+    first_detection = plate_detections[0] if plate_detections and isinstance(plate_detections[0], dict) else {}
+    location = first_detection.get("location") if isinstance(first_detection.get("location"), dict) else {}
+    resolved_location = (
+        resolved_decision.get("location")
+        if isinstance(resolved_decision, dict) and isinstance(resolved_decision.get("location"), dict)
+        else {}
+    )
+    enriched_payload = dict(telemetry_payload or {})
+    if resolved_decision:
+        enriched_payload.setdefault("detected_plate", resolved_decision.get("plate_read"))
+        enriched_payload.setdefault("confidence", resolved_decision.get("confidence"))
+        enriched_payload.setdefault("timestamp", resolved_decision.get("source_detection_time"))
+        if resolved_location:
+            enriched_payload.setdefault("latitude", resolved_location.get("lat"))
+            enriched_payload.setdefault("longitude", resolved_location.get("lon"))
+    if first_detection:
+        enriched_payload.setdefault("detected_plate", first_detection.get("plate_read"))
+        enriched_payload.setdefault("confidence", first_detection.get("confidence_level"))
+        enriched_payload.setdefault("timestamp", first_detection.get("time"))
+        if location:
+            enriched_payload.setdefault("latitude", location.get("lat"))
+            enriched_payload.setdefault("longitude", location.get("lon"))
+    parsed = TelemetryUpdate.model_validate(enriched_payload or {})
     normalized = parsed.model_dump(exclude_none=True)
+    if enriched_payload.get("detected_plate") and "detected_plate" not in normalized:
+        normalized["detected_plate"] = enriched_payload.get("detected_plate")
+    if enriched_payload.get("confidence") is not None and "confidence" not in normalized:
+        normalized["confidence"] = enriched_payload.get("confidence")
+    if enriched_payload.get("timestamp") and "timestamp" not in normalized:
+        normalized["timestamp"] = enriched_payload.get("timestamp")
+    if enriched_payload.get("latitude") is not None and "latitude" not in normalized:
+        normalized["latitude"] = enriched_payload.get("latitude")
+    if enriched_payload.get("longitude") is not None and "longitude" not in normalized:
+        normalized["longitude"] = enriched_payload.get("longitude")
     normalized.setdefault("source", payload.get("source") or "jetson")
     return normalized
 
@@ -167,6 +221,10 @@ def _serialize_space(space_id: str, values: dict[str, Any]) -> dict[str, Any]:
         "longitude": values.get("longitude"),
         "polygon": [_serialize_point(point) for point in values.get("polygon", [])],
         "occupied": values.get("occupied", False),
+        "status": values.get("status", "EMPTY"),
+        "decision_confidence": values.get("decision_confidence"),
+        "decision_reason": values.get("decision_reason"),
+        "source_detection_time": values.get("source_detection_time"),
         "vehicle_data": values.get("vehicle_data"),
     }
 
@@ -377,6 +435,11 @@ async def jetson_telemetry(request: Request, payload: dict[str, Any]) -> dict[st
     device_id = _resolve_device_id(request, explicit_value=payload.get("device_id"))
 
     telemetry_payload = payload.get("telemetry") if isinstance(payload.get("telemetry"), dict) else payload
+    plate_detections = (
+        telemetry_payload.get("plate_detections")
+        if isinstance(telemetry_payload.get("plate_detections"), list)
+        else None
+    )
     parking_updates = payload.get("parking_updates") or payload.get("events") or []
     normalized_updates = []
     for update in parking_updates:
@@ -386,9 +449,31 @@ async def jetson_telemetry(request: Request, payload: dict[str, Any]) -> dict[st
         normalized.setdefault("device_id", device_id)
         normalized_updates.append(normalized)
 
-    await run_in_threadpool(state.save_observation, device_id, payload, "jetson.telemetry")
-    result = await run_in_threadpool(state.update_telemetry, device_id, telemetry_payload or {}, normalized_updates)
-    await telemetry_hub.publish(_normalize_frontend_telemetry(payload))
+    publish_payload = payload
+    if plate_detections is not None:
+        resolution = await run_in_threadpool(lot_space_association.ingest, device_id, telemetry_payload or {})
+        enriched_telemetry_payload = dict(telemetry_payload or {})
+        enriched_telemetry_payload["space_resolution"] = [decision.to_dict() for decision in resolution.space_decisions]
+        enriched_telemetry_payload["detection_associations"] = [decision.to_dict() for decision in resolution.detection_results]
+
+        if isinstance(payload.get("telemetry"), dict):
+            observation_payload = dict(payload)
+            observation_payload["telemetry"] = enriched_telemetry_payload
+        else:
+            observation_payload = dict(enriched_telemetry_payload)
+
+        await run_in_threadpool(state.save_observation, device_id, observation_payload, "jetson.telemetry")
+        result = await run_in_threadpool(
+            state.apply_space_decisions,
+            device_id,
+            resolution.space_decisions,
+            enriched_telemetry_payload,
+        )
+        publish_payload = observation_payload
+    else:
+        await run_in_threadpool(state.save_observation, device_id, payload, "jetson.telemetry")
+        result = await run_in_threadpool(state.update_telemetry, device_id, telemetry_payload or {}, normalized_updates)
+    await telemetry_hub.publish(_normalize_frontend_telemetry(publish_payload))
     return {
         "status": "ok",
         "device": result["device"],
