@@ -37,6 +37,12 @@ class Settings:
     demo_telemetry_enabled: bool
     demo_telemetry_interval_seconds: float
     request_timeout_seconds: float
+    bbox_filter_enabled: bool
+    bbox_window_sec: float
+    bbox_top_k_per_window: int
+    bbox_min_relative_height_ratio: float
+    bbox_min_absolute_height_px: float
+    bbox_use_area_tiebreak: bool
     static_dir: Path
     runtime_dir: Path
 
@@ -54,6 +60,12 @@ class Settings:
             demo_telemetry_enabled=_env_flag("DEMO_TELEMETRY_ENABLED", False),
             demo_telemetry_interval_seconds=float(os.getenv("DEMO_TELEMETRY_INTERVAL_SECONDS", "1.5")),
             request_timeout_seconds=float(os.getenv("MEDIA_MTX_REQUEST_TIMEOUT_SECONDS", "10")),
+            bbox_filter_enabled=_env_flag("BBOX_FILTER_ENABLED", True),
+            bbox_window_sec=float(os.getenv("BBOX_WINDOW_SEC", "2.0")),
+            bbox_top_k_per_window=int(os.getenv("BBOX_TOP_K_PER_WINDOW", "1")),
+            bbox_min_relative_height_ratio=float(os.getenv("BBOX_MIN_RELATIVE_HEIGHT_RATIO", "0.65")),
+            bbox_min_absolute_height_px=float(os.getenv("BBOX_MIN_ABSOLUTE_HEIGHT_PX", "0")),
+            bbox_use_area_tiebreak=_env_flag("BBOX_USE_AREA_TIEBREAK", True),
             static_dir=Path(__file__).resolve().parent / "static",
             runtime_dir=BASE_DIR / "runtime_data",
         )

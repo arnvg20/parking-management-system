@@ -40,7 +40,7 @@ from .mediamtx import (
     rewrite_location_header,
 )
 from .schemas import TelemetryUpdate
-from .space_assignment import LotSpaceAssociationService
+from .space_assignment import LotSpaceAssociationConfig, LotSpaceAssociationService
 from .telemetry import DemoTelemetryPublisher, TelemetryHub
 
 
@@ -58,7 +58,17 @@ state = BackendState(
     runtime_dir=settings.runtime_dir,
     default_device_id=settings.default_device_id,
 )
-lot_space_association = LotSpaceAssociationService(parking_spaces)
+lot_space_association = LotSpaceAssociationService(
+    parking_spaces,
+    config=LotSpaceAssociationConfig(
+        bbox_filter_enabled=settings.bbox_filter_enabled,
+        bbox_window_sec=settings.bbox_window_sec,
+        bbox_top_k_per_window=settings.bbox_top_k_per_window,
+        bbox_min_relative_height_ratio=settings.bbox_min_relative_height_ratio,
+        bbox_min_absolute_height_px=settings.bbox_min_absolute_height_px,
+        bbox_use_area_tiebreak=settings.bbox_use_area_tiebreak,
+    ),
+)
 
 
 @asynccontextmanager
@@ -143,6 +153,8 @@ def _normalize_frontend_telemetry(payload: dict[str, Any]) -> dict[str, Any]:
     )
     first_detection = plate_detections[0] if plate_detections and isinstance(plate_detections[0], dict) else {}
     location = first_detection.get("location") if isinstance(first_detection.get("location"), dict) else {}
+    if not location:
+        location = first_detection.get("gps") if isinstance(first_detection.get("gps"), dict) else {}
     resolved_location = (
         resolved_decision.get("location")
         if isinstance(resolved_decision, dict) and isinstance(resolved_decision.get("location"), dict)
@@ -157,9 +169,17 @@ def _normalize_frontend_telemetry(payload: dict[str, Any]) -> dict[str, Any]:
             enriched_payload.setdefault("latitude", resolved_location.get("lat"))
             enriched_payload.setdefault("longitude", resolved_location.get("lon"))
     if first_detection:
-        enriched_payload.setdefault("detected_plate", first_detection.get("plate_read"))
-        enriched_payload.setdefault("confidence", first_detection.get("confidence_level"))
-        enriched_payload.setdefault("timestamp", first_detection.get("time"))
+        enriched_payload.setdefault(
+            "detected_plate",
+            first_detection.get("plate_read")
+            or first_detection.get("plate_text")
+            or first_detection.get("detected_plate"),
+        )
+        enriched_payload.setdefault(
+            "confidence",
+            first_detection.get("confidence_level") if first_detection.get("confidence_level") is not None else first_detection.get("confidence"),
+        )
+        enriched_payload.setdefault("timestamp", first_detection.get("time") or first_detection.get("detected_at"))
         if location:
             enriched_payload.setdefault("latitude", location.get("lat"))
             enriched_payload.setdefault("longitude", location.get("lon"))

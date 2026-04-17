@@ -30,8 +30,8 @@ class TelemetryUpdate(BaseModel):
 class DetectionLocationPayload(BaseModel):
     model_config = ConfigDict(extra="allow")
 
-    lat: float
-    lon: float
+    lat: float = Field(validation_alias=AliasChoices("lat", "latitude"))
+    lon: float = Field(validation_alias=AliasChoices("lon", "longitude"))
 
 
 class PlateDetectionPayload(BaseModel):
@@ -39,17 +39,22 @@ class PlateDetectionPayload(BaseModel):
 
     plate_read: str | None = Field(
         default=None,
-        validation_alias=AliasChoices("plate_read", "detected_plate", "plate", "license_plate"),
+        validation_alias=AliasChoices("plate_read", "detected_plate", "plate", "license_plate", "plate_text"),
     )
     time: str | None = Field(
         default=None,
-        validation_alias=AliasChoices("time", "timestamp"),
+        validation_alias=AliasChoices("time", "timestamp", "detected_at"),
     )
-    location: DetectionLocationPayload | None = None
+    location: DetectionLocationPayload | None = Field(
+        default=None,
+        validation_alias=AliasChoices("location", "gps"),
+    )
     confidence_level: float | None = Field(
         default=None,
         validation_alias=AliasChoices("confidence_level", "confidence"),
     )
+    bbox_xyxy: list[float] | None = None
+    source_camera: str | None = None
 
 
 class JetsonTelemetryEnvelope(BaseModel):

@@ -59,6 +59,12 @@ http://YOUR_EC2_PUBLIC_IP_OR_DOMAIN:5000
 - `DEMO_TELEMETRY_ENABLED`: set to `true` if you want fake telemetry for a quick demo.
 - `DEMO_TELEMETRY_INTERVAL_SECONDS`: fake telemetry update interval.
 - `MEDIA_MTX_REQUEST_TIMEOUT_SECONDS`: backend timeout when proxying WHEP signaling.
+- `BBOX_FILTER_ENABLED`: enables the server-side bbox pre-filter before GPS stall matching.
+- `BBOX_WINDOW_SEC`: camera-local detection window used for bbox ranking. Default is `2.0`.
+- `BBOX_TOP_K_PER_WINDOW`: number of strongest bbox detections allowed through each window. Default is `1`.
+- `BBOX_MIN_RELATIVE_HEIGHT_RATIO`: second-stage guard for smaller detections relative to the largest bbox in the same window. Default is `0.65`.
+- `BBOX_MIN_ABSOLUTE_HEIGHT_PX`: optional floor for bbox height. Default is `0`.
+- `BBOX_USE_AREA_TIEBREAK`: uses bbox area after height when ranking same-window detections.
 
 ## MediaMTX setup
 
@@ -98,6 +104,8 @@ Expected telemetry fields:
 - `confidence`
 - `timestamp`
 - `robot_status`
+
+For raw Jetson bridge payloads, the server-side plate matcher also accepts `gps.lat`, `gps.lon`, `plate_text`, `detected_at`, `bbox_xyxy`, and `source_camera`. When bbox metadata is present, the backend first keeps only the strongest detections per camera/time window, then runs the existing GPS polygon matcher and temporal smoothing logic on the survivors.
 
 ## Preserved Jetson backend contract
 
