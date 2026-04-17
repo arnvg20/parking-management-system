@@ -12,38 +12,71 @@
             box-sizing: border-box;
         }
 
+        :root {
+            --page-bg: #eef3f1;
+            --surface: #ffffff;
+            --surface-muted: #f6f9f8;
+            --surface-strong: #edf4f1;
+            --border: #d7e2dd;
+            --border-strong: #bfd2ca;
+            --ink: #17312b;
+            --muted: #61766e;
+            --accent: #0f766e;
+            --accent-strong: #115e59;
+            --accent-soft: #ddf3ef;
+            --success: #2f855a;
+            --warning: #b7791f;
+            --danger: #c53030;
+            --video-top: #15212c;
+            --video-bottom: #0f1821;
+            --code-bg: #15212b;
+            --shadow: 0 18px 48px rgba(16, 30, 27, 0.08);
+            --shadow-soft: 0 10px 28px rgba(16, 30, 27, 0.05);
+        }
+
         body {
-            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: Inter, "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(180deg, #f6f8f7 0%, var(--page-bg) 100%);
             min-height: 100vh;
-            padding: 20px;
+            padding: 18px;
+            color: var(--ink);
         }
 
         .container {
-            max-width: 1500px;
+            max-width: 1520px;
             margin: 0 auto;
-            background: white;
-            border-radius: 15px;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+            background: var(--surface);
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow);
             overflow: hidden;
         }
 
         .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 30px;
+            background: var(--surface);
+            color: var(--ink);
+            padding: 30px 28px 24px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
             text-align: center;
+            border-bottom: 1px solid var(--border);
         }
 
         .header h1 {
-            font-size: 32px;
-            margin-bottom: 10px;
+            font-size: clamp(2.1rem, 4vw, 3rem);
+            line-height: 1.08;
+            margin-bottom: 0;
+            max-width: 18ch;
         }
 
-        .header-copy {
-            margin: 0 auto;
-            max-width: 760px;
-            opacity: 0.92;
+        .header-subtitle {
+            margin: 0;
+            max-width: 64ch;
+            color: var(--muted);
+            line-height: 1.6;
+            font-size: 15px;
         }
 
         .header-meta {
@@ -51,58 +84,69 @@
             flex-wrap: wrap;
             gap: 10px;
             justify-content: center;
-            margin-top: 18px;
+            align-self: auto;
         }
 
         .connection-status,
         .header-badge {
-            padding: 10px 16px;
-            border-radius: 999px;
+            padding: 10px 12px;
+            border-radius: 8px;
             font-weight: 700;
-            background: rgba(255, 255, 255, 0.18);
-            color: white;
+            background: var(--surface-muted);
+            color: var(--ink);
+            border: 1px solid var(--border);
         }
 
         .connection-status.connected {
-            background: rgba(76, 175, 80, 0.88);
+            background: #e8f6ee;
+            color: #22623f;
+            border-color: #b7dec3;
         }
 
         .connection-status.disconnected {
-            background: rgba(255, 152, 0, 0.88);
+            background: #fff4df;
+            color: #9a5a00;
+            border-color: #efd6a4;
         }
 
         .tabs {
             display: flex;
-            border-bottom: 2px solid #e0e0e0;
-            background: #f5f5f5;
+            gap: 8px;
+            padding: 12px 20px;
+            border-bottom: 1px solid var(--border);
+            background: var(--surface-muted);
+            overflow-x: auto;
         }
 
         .tab-btn {
             flex: 1;
-            padding: 15px 20px;
-            border: none;
+            min-width: 170px;
+            padding: 12px 16px;
+            border: 1px solid transparent;
+            border-radius: 8px;
             background: none;
             cursor: pointer;
-            font-size: 16px;
-            font-weight: 600;
-            color: #666;
-            transition: all 0.3s ease;
-            border-bottom: 3px solid transparent;
+            font-size: 15px;
+            font-weight: 700;
+            color: var(--muted);
+            transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
         }
 
         .tab-btn:hover {
-            background: #efefef;
+            background: rgba(15, 118, 110, 0.06);
+            color: var(--ink);
         }
 
         .tab-btn.active {
-            color: #667eea;
-            border-bottom-color: #667eea;
-            background: white;
+            color: var(--accent-strong);
+            border-color: rgba(15, 118, 110, 0.16);
+            background: var(--surface);
+            box-shadow: var(--shadow-soft);
         }
 
         .tab-content {
             display: none;
-            padding: 40px;
+            padding: 28px;
             animation: fadeIn 0.5s ease;
         }
 
@@ -128,7 +172,7 @@
         .dashboard-layout {
             display: grid;
             grid-template-columns: minmax(0, 1.6fr) minmax(280px, 0.8fr);
-            gap: 24px;
+            gap: 20px;
             align-items: start;
         }
 
@@ -137,42 +181,44 @@
         .operator-card,
         .video-card,
         .data-card {
-            background: #f9fbff;
-            border: 1px solid #dde5f4;
-            border-radius: 18px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
             padding: 20px;
-            box-shadow: 0 18px 40px rgba(39, 65, 109, 0.08);
+            box-shadow: var(--shadow-soft);
         }
 
         .panel-title {
-            font-size: 24px;
+            font-size: 20px;
             font-weight: 700;
-            color: #24344d;
+            color: var(--ink);
             margin-bottom: 8px;
         }
 
         .panel-copy {
-            color: #5e6c84;
-            margin-bottom: 18px;
-            line-height: 1.5;
+            color: var(--muted);
+            margin-bottom: 16px;
+            line-height: 1.6;
+            max-width: 60ch;
         }
 
         .map-legend {
             display: flex;
             flex-wrap: wrap;
-            gap: 12px;
-            margin-bottom: 18px;
+            gap: 8px;
+            margin-bottom: 16px;
         }
 
         .legend-chip {
             display: inline-flex;
             align-items: center;
             gap: 8px;
-            padding: 8px 12px;
-            border-radius: 999px;
-            background: #eef3ff;
-            color: #34445f;
-            font-size: 14px;
+            padding: 8px 10px;
+            border-radius: 6px;
+            background: var(--surface-muted);
+            color: #36504a;
+            border: 1px solid var(--border);
+            font-size: 13px;
             font-weight: 600;
         }
 
@@ -195,7 +241,7 @@
         }
 
         .legend-swatch.section {
-            background: #1a73e8;
+            background: var(--accent);
         }
 
         .legend-swatch.crack {
@@ -232,21 +278,21 @@
 
         .lot-map {
             height: 620px;
-            border-radius: 14px;
+            border-radius: 8px;
             overflow: hidden;
-            border: 1px solid #d6deef;
+            border: 1px solid var(--border);
         }
 
         .leaflet-container {
             font-family: inherit;
-            background: #d7e3f4;
+            background: #d7e4e1;
         }
 
         .leaflet-tooltip.parking-tooltip {
-            background: rgba(20, 31, 53, 0.9);
+            background: rgba(17, 38, 35, 0.92);
             border: none;
             color: white;
-            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.22);
+            box-shadow: 0 8px 20px rgba(17, 38, 35, 0.22);
             padding: 6px 10px;
         }
 
@@ -258,14 +304,13 @@
         .section-label span {
             display: inline-block;
             padding: 6px 10px;
-            border-radius: 999px;
-            background: rgba(26, 115, 232, 0.9);
+            border-radius: 6px;
+            background: var(--accent);
             color: white;
             font-size: 12px;
             font-weight: 700;
-            letter-spacing: 0.04em;
-            text-transform: uppercase;
-            box-shadow: 0 8px 18px rgba(17, 70, 142, 0.25);
+            letter-spacing: 0;
+            box-shadow: 0 8px 18px rgba(15, 118, 110, 0.18);
         }
 
         .section-summary {
@@ -274,20 +319,20 @@
         }
 
         .section-card {
-            border-radius: 14px;
-            border: 1px solid #d8e2f3;
-            background: white;
-            padding: 16px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: var(--surface-muted);
+            padding: 14px 16px;
         }
 
         .section-card h3 {
-            color: #233758;
+            color: var(--ink);
             font-size: 18px;
             margin-bottom: 8px;
         }
 
         .section-meta {
-            color: #5e6c84;
+            color: var(--muted);
             line-height: 1.5;
             font-size: 14px;
         }
@@ -295,9 +340,10 @@
         .section-next {
             margin-top: 18px;
             padding: 14px 16px;
-            border-radius: 14px;
-            background: linear-gradient(135deg, #eef4ff 0%, #f6f9ff 100%);
-            color: #42536d;
+            border-radius: 8px;
+            background: var(--accent-soft);
+            border: 1px solid rgba(15, 118, 110, 0.14);
+            color: #30524d;
             line-height: 1.5;
         }
 
@@ -307,21 +353,21 @@
         }
 
         .detection-item {
-            border-radius: 12px;
-            border: 1px solid #d8e2f3;
-            background: #f8fbff;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: var(--surface-muted);
             padding: 12px 14px;
         }
 
         .detection-item strong {
             display: block;
-            color: #24344d;
+            color: var(--ink);
             margin-top: 8px;
             margin-bottom: 6px;
         }
 
         .detection-item div {
-            color: #5e6c84;
+            color: var(--muted);
             font-size: 14px;
             line-height: 1.5;
         }
@@ -331,10 +377,10 @@
             align-items: center;
             gap: 8px;
             padding: 6px 10px;
-            border-radius: 999px;
+            border-radius: 6px;
             font-size: 12px;
             font-weight: 700;
-            letter-spacing: 0.04em;
+            letter-spacing: 0;
             text-transform: uppercase;
         }
 
@@ -360,25 +406,51 @@
         }
 
         .status-bar {
-            display: flex;
-            justify-content: space-around;
-            margin-top: 30px;
-            padding: 20px;
-            background: #f5f5f5;
-            border-radius: 10px;
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 12px;
+            margin-bottom: 20px;
         }
 
         .status-item {
-            text-align: center;
+            display: grid;
+            gap: 8px;
+            padding: 14px 16px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            box-shadow: var(--shadow-soft);
+            text-align: left;
+        }
+
+        .status-bar-compact {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            margin-top: 20px;
+            margin-bottom: 0;
+        }
+
+        .status-item-label {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            color: var(--muted);
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .status-item-value {
+            display: block;
+            color: var(--ink);
+            font-size: 30px;
+            line-height: 1;
         }
 
         .status-color {
             display: inline-block;
-            width: 20px;
-            height: 20px;
-            border-radius: 4px;
-            margin-right: 8px;
-            vertical-align: middle;
+            width: 10px;
+            height: 10px;
+            border-radius: 999px;
+            flex: 0 0 auto;
         }
 
         .status-color.available {
@@ -405,7 +477,7 @@
         .operator-layout,
         .data-layout {
             display: grid;
-            gap: 24px;
+            gap: 20px;
         }
 
         .operator-layout {
@@ -426,10 +498,10 @@
         .field-label,
         .mini-label {
             display: block;
-            color: #55657f;
+            color: var(--muted);
             font-size: 12px;
             font-weight: 700;
-            letter-spacing: 0.05em;
+            letter-spacing: 0;
             text-transform: uppercase;
         }
 
@@ -437,10 +509,10 @@
             width: 100%;
             margin-top: 8px;
             padding: 12px 14px;
-            border: 1px solid #cad6ea;
-            border-radius: 10px;
-            background: white;
-            color: #24344d;
+            border: 1px solid var(--border-strong);
+            border-radius: 6px;
+            background: var(--surface-muted);
+            color: var(--ink);
             font-size: 15px;
         }
 
@@ -452,15 +524,15 @@
         }
 
         .mini-card {
-            background: white;
-            border: 1px solid #d8e2f3;
-            border-radius: 14px;
+            background: var(--surface-muted);
+            border: 1px solid var(--border);
+            border-radius: 6px;
             padding: 12px 14px;
         }
 
         .mini-value {
-            color: #24344d;
-            font-size: 20px;
+            color: var(--ink);
+            font-size: 22px;
             font-weight: 700;
             margin-top: 8px;
         }
@@ -474,30 +546,32 @@
 
         .jetson-btn {
             padding: 12px 14px;
-            border-radius: 10px;
-            border: none;
+            border-radius: 6px;
+            border: 1px solid transparent;
             cursor: pointer;
             font-weight: 700;
             color: white;
-            background: #667eea;
-            box-shadow: 0 6px 18px rgba(102, 126, 234, 0.25);
-            transition: transform 0.12s ease, opacity 0.12s ease;
+            background: var(--accent);
+            box-shadow: none;
+            transition: transform 0.12s ease, opacity 0.12s ease, background 0.12s ease, border-color 0.12s ease;
         }
 
         .jetson-btn.capture {
-            background: #00897b;
-            box-shadow: 0 6px 18px rgba(0, 137, 123, 0.25);
+            background: #147d74;
         }
 
         .jetson-btn.stop {
-            background: #f44336;
-            box-shadow: 0 6px 18px rgba(244, 67, 54, 0.25);
+            background: var(--danger);
         }
 
         .jetson-btn.secondary {
-            background: rgba(255, 255, 255, 0.12);
-            border: 1px solid rgba(255, 255, 255, 0.22);
-            box-shadow: none;
+            background: rgba(255, 255, 255, 0.06);
+            border-color: rgba(255, 255, 255, 0.18);
+            color: white;
+        }
+
+        .jetson-btn:hover {
+            transform: translateY(-1px);
         }
 
         .jetson-btn:active {
@@ -511,22 +585,32 @@
         }
 
         .status-message {
-            min-height: 24px;
+            min-height: 44px;
+            padding: 10px 12px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background: var(--surface-muted);
             font-weight: 600;
-            color: #555;
+            color: var(--muted);
         }
 
         .status-message.success {
-            color: #2e7d32;
+            color: #22623f;
+            border-color: #b7dec3;
+            background: #e8f6ee;
         }
 
         .status-message.error {
-            color: #c62828;
+            color: #a12a2a;
+            border-color: #e8c4c4;
+            background: #fbecec;
         }
 
         .video-card {
-            background: linear-gradient(180deg, #182339 0%, #101825 100%);
+            background: linear-gradient(180deg, var(--video-top) 0%, var(--video-bottom) 100%);
             color: white;
+            border-color: #20303d;
+            box-shadow: none;
         }
 
         .video-header {
@@ -541,12 +625,19 @@
             font-size: 22px;
         }
 
+        .video-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            justify-content: flex-end;
+        }
+
         .video-window {
             width: 100%;
-            min-height: 600px;
+            min-height: 580px;
             background: #000;
-            border: 2px solid rgba(255, 255, 255, 0.08);
-            border-radius: 14px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 8px;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -606,22 +697,23 @@
         .stream-stats-grid {
             display: grid;
             grid-template-columns: repeat(4, minmax(0, 1fr));
-            gap: 14px;
-            margin-top: 18px;
+            gap: 8px;
+            margin-top: 12px;
         }
 
         .stream-stat {
-            padding: 14px;
-            border-radius: 14px;
-            background: rgba(255, 255, 255, 0.1);
-            border: 1px solid rgba(255, 255, 255, 0.08);
+            min-height: 74px;
+            padding: 10px 12px;
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.1);
         }
 
         .stream-stat-value {
             color: white;
-            font-size: 16px;
+            font-size: 15px;
             font-weight: 700;
-            margin-top: 8px;
+            margin-top: 6px;
             line-height: 1.45;
         }
 
@@ -636,14 +728,14 @@
             gap: 16px;
             align-items: center;
             padding: 12px 14px;
-            border-radius: 12px;
-            background: white;
-            border: 1px solid #d8e2f3;
-            color: #55657f;
+            border-radius: 6px;
+            background: var(--surface-muted);
+            border: 1px solid var(--border);
+            color: var(--muted);
         }
 
         .telemetry-line strong {
-            color: #24344d;
+            color: var(--ink);
             text-align: right;
         }
 
@@ -656,7 +748,7 @@
         }
 
         .data-section {
-            margin-top: 22px;
+            margin-top: 20px;
         }
 
         .data-section:first-child {
@@ -664,16 +756,17 @@
         }
 
         .data-section-title {
-            font-size: 20px;
-            color: #24344d;
+            font-size: 18px;
+            color: var(--ink);
             margin-bottom: 10px;
         }
 
         pre {
-            background: #152238;
+            background: var(--code-bg);
             color: #f7fbff;
             padding: 14px;
-            border-radius: 12px;
+            border-radius: 8px;
+            border: 1px solid #22313d;
             font-family: "SFMono-Regular", Consolas, "Courier New", monospace;
             font-size: 13px;
             line-height: 1.5;
@@ -691,9 +784,9 @@
 
         .list-item,
         .image-card {
-            background: white;
-            border: 1px solid #d8e2f3;
-            border-radius: 14px;
+            background: var(--surface-muted);
+            border: 1px solid var(--border);
+            border-radius: 8px;
             padding: 14px;
         }
 
@@ -704,9 +797,9 @@
 
         .observation-item {
             width: 100%;
-            border: 1px solid #d8e2f3;
-            border-radius: 14px;
-            background: white;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--surface-muted);
             padding: 14px;
             text-align: left;
             cursor: pointer;
@@ -714,30 +807,30 @@
         }
 
         .observation-item:hover {
-            border-color: #8aa7ff;
-            box-shadow: 0 10px 24px rgba(102, 126, 234, 0.12);
+            border-color: rgba(15, 118, 110, 0.26);
+            box-shadow: 0 10px 24px rgba(15, 118, 110, 0.08);
             transform: translateY(-1px);
         }
 
         .observation-item.active {
-            border-color: #667eea;
-            box-shadow: 0 12px 28px rgba(102, 126, 234, 0.18);
-            background: linear-gradient(180deg, #f8faff 0%, #eef3ff 100%);
+            border-color: rgba(15, 118, 110, 0.3);
+            box-shadow: 0 12px 28px rgba(15, 118, 110, 0.1);
+            background: var(--accent-soft);
         }
 
         .observation-item strong {
             display: block;
-            color: #24344d;
+            color: var(--ink);
             margin-bottom: 8px;
         }
 
         .observation-item div {
-            color: #5e6c84;
+            color: var(--muted);
             line-height: 1.5;
         }
 
         .observation-item .observation-primary {
-            color: #24344d;
+            color: var(--ink);
             font-weight: 600;
         }
 
@@ -753,22 +846,22 @@
         }
 
         .observation-meta-card {
-            background: #f7f9fe;
-            border: 1px solid #d8e2f3;
-            border-radius: 12px;
+            background: var(--surface-muted);
+            border: 1px solid var(--border);
+            border-radius: 8px;
             padding: 12px 14px;
         }
 
         .observation-meta-card span {
             display: block;
-            color: #66758f;
+            color: var(--muted);
             font-size: 12px;
             margin-bottom: 6px;
         }
 
         .observation-meta-card strong {
             display: block;
-            color: #24344d;
+            color: var(--ink);
             font-size: 15px;
             line-height: 1.45;
             word-break: break-word;
@@ -787,28 +880,28 @@
             align-items: center;
             justify-content: center;
             padding: 10px 14px;
-            border-radius: 999px;
-            border: 1px solid #c6d5f7;
-            background: #f7f9fe;
-            color: #3656aa;
+            border-radius: 6px;
+            border: 1px solid rgba(15, 118, 110, 0.18);
+            background: var(--accent-soft);
+            color: var(--accent-strong);
             text-decoration: none;
             font-weight: 600;
         }
 
         .data-link:hover {
-            background: #eef3ff;
+            background: #d3ede7;
         }
 
         .list-item strong,
         .image-card strong {
             display: block;
-            color: #24344d;
+            color: var(--ink);
             margin-bottom: 6px;
         }
 
         .list-item div,
         .image-card div {
-            color: #5e6c84;
+            color: var(--muted);
             line-height: 1.5;
         }
 
@@ -826,7 +919,7 @@
             width: 100%;
             height: 160px;
             object-fit: cover;
-            background: #e3ebf9;
+            background: #deebe7;
         }
 
         .image-card-body {
@@ -835,8 +928,11 @@
 
         .placeholder-panel {
             text-align: center;
-            padding: 40px 20px;
-            color: #7a879c;
+            padding: 32px 20px;
+            color: var(--muted);
+            border: 1px dashed var(--border-strong);
+            border-radius: 8px;
+            background: var(--surface-muted);
         }
 
         .modal {
@@ -847,26 +943,48 @@
             top: 0;
             width: 100%;
             height: 100%;
+            padding: 24px 16px;
             background-color: rgba(0, 0, 0, 0.5);
             animation: fadeIn 0.3s ease;
+            overflow-y: auto;
         }
 
         .modal-content {
-            background-color: white;
-            margin: 8% auto;
+            background-color: var(--surface);
+            margin: 0 auto;
             padding: 30px;
-            border-radius: 15px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
             width: min(420px, calc(100% - 32px));
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+            max-height: calc(100vh - 48px);
+            overflow-y: auto;
+            overscroll-behavior: contain;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-gutter: stable;
+            box-shadow: var(--shadow);
+        }
+
+        .modal-topbar {
+            position: sticky;
+            top: 0;
+            z-index: 1;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 16px;
+            margin: -30px -30px 20px;
+            padding: 30px 30px 10px;
+            background: linear-gradient(180deg, var(--surface) 78%, rgba(255, 255, 255, 0));
         }
 
         .modal-header {
             font-size: 24px;
             font-weight: bold;
-            color: #667eea;
-            margin-bottom: 20px;
-            border-bottom: 2px solid #667eea;
+            color: var(--accent-strong);
+            margin-bottom: 0;
+            border-bottom: 1px solid var(--border);
             padding-bottom: 10px;
+            flex: 1;
         }
 
         .modal-item {
@@ -875,33 +993,46 @@
         }
 
         .modal-label {
-            color: #666;
+            color: var(--muted);
             font-weight: 600;
         }
 
         .modal-value {
-            color: #333;
+            color: var(--ink);
             margin-top: 5px;
-            padding: 8px;
-            background: #f5f5f5;
-            border-radius: 5px;
+            padding: 10px 12px;
+            background: var(--surface-muted);
+            border: 1px solid var(--border);
+            border-radius: 6px;
             word-break: break-all;
         }
 
         .close-btn {
-            float: right;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 42px;
+            height: 42px;
+            padding: 0;
+            border: 1px solid transparent;
+            border-radius: 6px;
+            background: transparent;
             font-size: 28px;
             font-weight: bold;
-            color: #667eea;
+            color: var(--accent-strong);
             cursor: pointer;
             transition: color 0.3s ease;
         }
 
         .close-btn:hover {
-            color: #f44336;
+            color: var(--danger);
         }
 
         @media (max-width: 980px) {
+            .header-meta {
+                justify-content: center;
+            }
+
             .dashboard-layout,
             .operator-layout,
             .data-layout {
@@ -912,7 +1043,9 @@
                 height: 520px;
             }
 
-             .stream-stats-grid {
+            .status-bar,
+            .status-bar-compact,
+            .stream-stats-grid {
                 grid-template-columns: repeat(2, minmax(0, 1fr));
             }
         }
@@ -922,17 +1055,17 @@
                 padding: 10px;
             }
 
+            .header,
             .tab-content {
                 padding: 22px;
             }
 
             .tabs {
-                flex-direction: column;
+                padding: 12px;
             }
 
             .status-bar {
-                flex-direction: column;
-                gap: 14px;
+                grid-template-columns: 1fr;
             }
 
             .terminal-controls,
@@ -960,40 +1093,73 @@
             .observation-meta-grid {
                 grid-template-columns: 1fr;
             }
+
+            .modal {
+                padding: 12px;
+            }
+
+            .modal-content {
+                width: min(100%, 420px);
+                max-height: calc(100vh - 24px);
+                padding: 22px;
+            }
+
+            .modal-topbar {
+                margin: -22px -22px 16px;
+                padding: 22px 22px 10px;
+            }
         }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>Parking Management System</h1>
-            <p class="header-copy">Your map dashboard stays intact. The backend now supports cross-network Jetson devices, command queueing, uploaded images, and low-latency MediaMTX WebRTC playback for live streaming.</p>
+            <h1>Urban Sight - Parking Management System</h1>
+            <p class="header-subtitle">Developed by Team 12: ENG 4000 York University 2025/2026</p>
             <div class="header-meta">
-                <div id="connectionStatus" class="connection-status disconnected">Connecting to backend...</div>
-                <div id="deviceBadge" class="header-badge">Device: waiting</div>
-                <div id="timeBadge" class="header-badge">Server time: -</div>
+                <div id="connectionStatus" class="connection-status disconnected">Connecting...</div>
+                <div id="deviceBadge" class="header-badge">Active device: loading</div>
+                <div id="timeBadge" class="header-badge">Last sync: -</div>
             </div>
         </div>
 
         <div class="tabs">
-            <button class="tab-btn active" onclick="openTab(event, 'tab1')">Parking Lots</button>
-            <button class="tab-btn" onclick="openTab(event, 'tab2')">Live Ops</button>
-            <button class="tab-btn" onclick="openTab(event, 'tab3')">Data</button>
-            <button class="tab-btn" onclick="openTab(event, 'tab4')">Environment</button>
+            <button class="tab-btn active" onclick="openTab(event, 'tab1')">Parking Overview</button>
+            <button class="tab-btn" onclick="openTab(event, 'tab2')">Operator Terminal</button>
+            <button class="tab-btn" onclick="openTab(event, 'tab3')">Records</button>
+            <button class="tab-btn" onclick="openTab(event, 'tab4')">Site Conditions</button>
         </div>
 
         <div id="tab1" class="tab-content active">
+            <div class="status-bar">
+                <div class="status-item">
+                    <div class="status-item-label"><span class="status-color available"></span>Available</div>
+                    <strong class="status-item-value"><span id="availableCount">0</span></strong>
+                </div>
+                <div class="status-item">
+                    <div class="status-item-label"><span class="status-color occupied"></span>Occupied</div>
+                    <strong class="status-item-value"><span id="occupiedCount">0</span></strong>
+                </div>
+                <div class="status-item">
+                    <div class="status-item-label"><span class="status-color uncertain"></span>Needs Review</div>
+                    <strong class="status-item-value"><span id="uncertainCount">0</span></strong>
+                </div>
+                <div class="status-item">
+                    <div class="status-item-label">Total Spaces</div>
+                    <strong class="status-item-value"><span id="totalCount">0</span></strong>
+                </div>
+            </div>
             <div class="dashboard-layout">
                 <div class="map-panel">
-                    <div class="panel-title">Lot Overlay</div>
+                    <div class="panel-title">Lot Overview</div>
                     <div class="panel-copy">
-                        Parking sections are drawn from your Google Earth corner coordinates, with each space generated as a stall polygon inside its section.
+                        Each mapped section is divided into individual parking spaces so occupancy changes are easy to read at a glance.
                     </div>
                     <div class="map-legend">
                         <div class="legend-chip"><span class="legend-swatch section"></span>Section boundary</div>
                         <div class="legend-chip"><span class="legend-swatch available"></span>Available space</div>
                         <div class="legend-chip"><span class="legend-swatch occupied"></span>Occupied space</div>
-                        <div class="legend-chip"><span class="legend-swatch uncertain"></span>Uncertain space</div>
+                        <div class="legend-chip"><span class="legend-swatch uncertain"></span>Needs review</div>
                     </div>
                     <div id="lotMap" class="lot-map"></div>
                 </div>
@@ -1001,29 +1167,9 @@
                 <div class="section-panel">
                     <div class="panel-title">Section Summary</div>
                     <div class="panel-copy">
-                        Sections A, B, 3, and 4 are now mapped. Live parking state also updates from the Jetson backend telemetry path.
+                        Section totals refresh with the latest occupancy readings from the active device.
                     </div>
                     <div id="sectionSummary" class="section-summary"></div>
-                    <div class="section-next">
-                        Current assumption: each section contains 10 evenly spaced stalls generated from the four corners you provided.
-                    </div>
-                </div>
-            </div>
-            <div class="status-bar">
-                <div class="status-item">
-                    <span class="status-color available"></span>
-                    <strong>Available: <span id="availableCount">0</span></strong>
-                </div>
-                <div class="status-item">
-                    <span class="status-color occupied"></span>
-                    <strong>Occupied: <span id="occupiedCount">0</span></strong>
-                </div>
-                <div class="status-item">
-                    <span class="status-color uncertain"></span>
-                    <strong>Uncertain: <span id="uncertainCount">0</span></strong>
-                </div>
-                <div class="status-item">
-                    <strong>Total: <span id="totalCount">0</span></strong>
                 </div>
             </div>
         </div>
@@ -1033,17 +1179,20 @@
                 <div class="video-card">
                     <div class="video-header">
                         <div>
-                            <h2>Live Camera Feed</h2>
-                            <div id="streamHint">Negotiating a WebRTC session with MediaMTX</div>
+                            <h2>Live Camera</h2>
+                            <div id="streamHint">Preparing the live feed</div>
                         </div>
-                        <button id="reconnectStreamBtn" class="jetson-btn secondary">Reconnect stream</button>
+                        <div class="video-actions">
+                            <button id="fullscreenStreamBtn" class="jetson-btn secondary" type="button">Full Screen</button>
+                            <button id="reconnectStreamBtn" class="jetson-btn secondary" type="button">Reconnect Feed</button>
+                        </div>
                     </div>
                     <div id="videoWindow" class="video-window">
                         <video id="liveVideo" class="live-stream" autoplay muted playsinline></video>
                         <div id="videoOverlay" class="video-placeholder overlay-active">
                             <div class="video-spinner" aria-hidden="true"></div>
-                            <div id="overlayTitle" class="overlay-title">Starting live stream</div>
-                            <div id="overlayCopy" class="overlay-copy">Waiting for MediaMTX to answer the WebRTC request.</div>
+                            <div id="overlayTitle" class="overlay-title">Preparing live feed</div>
+                            <div id="overlayCopy" class="overlay-copy">Setting up the live camera connection.</div>
                         </div>
                     </div>
                     <div class="stream-stats-grid">
@@ -1070,7 +1219,7 @@
                     <div class="operator-card">
                         <div class="panel-title">Device Controls</div>
                         <div class="panel-copy">
-                            Queue commands for the selected device while the stream plays directly through MediaMTX WebRTC.
+                            Send camera commands to the selected device while monitoring the live feed.
                         </div>
 
                         <label class="field-label" for="deviceSelect">Selected Device</label>
@@ -1079,7 +1228,7 @@
                         <div class="device-stats">
                             <div class="mini-card">
                                 <span class="mini-label">Status</span>
-                                <div id="deviceStatus" class="mini-value">Waiting</div>
+                                <div id="deviceStatus" class="mini-value">Offline</div>
                             </div>
                             <div class="mini-card">
                                 <span class="mini-label">Last Seen</span>
@@ -1101,13 +1250,13 @@
                             <button id="captureImageBtn" class="jetson-btn capture">Capture Image</button>
                         </div>
 
-                        <div id="jetsonStatus" class="status-message">No command sent yet.</div>
+                        <div id="jetsonStatus" class="status-message">Choose an action to send to the device.</div>
                     </div>
 
                     <div class="operator-card">
-                        <div class="panel-title">Telemetry Snapshot</div>
+                        <div class="panel-title">Latest Telemetry</div>
                         <div class="panel-copy">
-                            Video and telemetry stay separate. These values reflect the latest backend state for the selected device.
+                            These values refresh from the selected device while the live feed stays active.
                         </div>
 
                         <div class="telemetry-summary">
@@ -1127,11 +1276,11 @@
             <div class="data-layout">
                 <div class="data-card">
                     <div class="data-section">
-                        <div class="data-section-title">Received Observation Files</div>
+                        <div class="data-section-title">Observation History</div>
                         <div id="observationList" class="observation-list"></div>
                     </div>
                     <div class="data-section">
-                        <div class="data-section-title">Recent Commands</div>
+                        <div class="data-section-title">Command History</div>
                         <div id="commandsList" class="list-grid"></div>
                     </div>
                 </div>
@@ -1139,8 +1288,8 @@
                 <div class="data-card">
                     <div class="data-section">
                         <div class="data-toolbar">
-                            <div class="data-section-title">Selected Observation File</div>
-                            <a id="openObservationRaw" class="data-link hidden" href="#" target="_blank" rel="noopener">Open raw JSON</a>
+                            <div class="data-section-title">Selected File</div>
+                            <a id="openObservationRaw" class="data-link hidden" href="#" target="_blank" rel="noopener">Open JSON</a>
                         </div>
                         <div id="observationMeta" class="observation-meta-grid"></div>
                         <div class="observation-viewer">
@@ -1148,11 +1297,11 @@
                         </div>
                     </div>
                     <div class="data-section">
-                        <div class="data-section-title">Latest Telemetry Snapshot</div>
+                        <div class="data-section-title">Latest Telemetry</div>
                         <pre id="telemetryJson">{}</pre>
                     </div>
                     <div class="data-section">
-                        <div class="data-section-title">Recent Images</div>
+                        <div class="data-section-title">Captured Images</div>
                         <div id="recentImages" class="image-grid"></div>
                     </div>
                 </div>
@@ -1162,9 +1311,9 @@
         <div id="tab4" class="tab-content">
             <div class="dashboard-layout">
                 <div class="map-panel">
-                    <div class="panel-title">Environmental Detection Overlay</div>
+                    <div class="panel-title">Site Conditions Map</div>
                     <div class="panel-copy">
-                        This map mirrors the lot dashboard and plots fixed crack and sign detections on the same parking lot outline.
+                        This view plots crack and sign detections on the lot map for quick inspection.
                     </div>
                     <div class="map-legend">
                         <div class="legend-chip"><span class="legend-swatch crack"></span>Crack detected</div>
@@ -1176,41 +1325,44 @@
                 <div class="section-panel">
                     <div class="panel-title">Detection Summary</div>
                     <div class="panel-copy">
-                        Each detection is listed with its mapped coordinates so you can cross-check the visual marker placement against the inspection inputs.
+                        Use this list to confirm what was detected and where each marker appears on the map.
                     </div>
                     <div id="environmentSummary" class="section-summary"></div>
                     <div class="section-next">
-                        The backend payload now accepts crack detections plus multiple sign kinds. New coordinates added there will render here automatically.
+                        New crack and sign detections appear here as soon as they are received.
                     </div>
                 </div>
             </div>
-            <div class="status-bar">
+            <div class="status-bar status-bar-compact">
                 <div class="status-item">
-                    <span class="status-color crack"></span>
-                    <strong>Cracks: <span id="crackCount">0</span></strong>
+                    <div class="status-item-label"><span class="status-color crack"></span>Cracks</div>
+                    <strong class="status-item-value"><span id="crackCount">0</span></strong>
                 </div>
                 <div class="status-item">
-                    <span class="status-color sign"></span>
-                    <strong>Signs: <span id="signCount">0</span></strong>
+                    <div class="status-item-label"><span class="status-color sign"></span>Signs</div>
+                    <strong class="status-item-value"><span id="signCount">0</span></strong>
                 </div>
                 <div class="status-item">
-                    <strong>Total: <span id="environmentalTotalCount">0</span></strong>
+                    <div class="status-item-label">Total Detections</div>
+                    <strong class="status-item-value"><span id="environmentalTotalCount">0</span></strong>
                 </div>
             </div>
         </div>
 
         <div id="vehicleModal" class="modal">
             <div class="modal-content">
-                <span class="close-btn" onclick="closeModal()">&times;</span>
-                <div class="modal-header">Parking Space <span id="spaceIdDisplay"></span></div>
+                <div class="modal-topbar">
+                    <div class="modal-header">Parking Space <span id="spaceIdDisplay"></span></div>
+                    <button class="close-btn" type="button" aria-label="Close parking space details" onclick="closeModal()">&times;</button>
+                </div>
 
                 <div class="modal-item">
-                    <div class="modal-label">Resolved Status</div>
+                    <div class="modal-label">Current Status</div>
                     <div class="modal-value" id="spaceStatusDisplay">-</div>
                 </div>
 
                 <div class="modal-item">
-                    <div class="modal-label">License Plate</div>
+                    <div class="modal-label">Plate Number</div>
                     <div class="modal-value" id="licensePlateDisplay">-</div>
                 </div>
 
@@ -1225,22 +1377,22 @@
                 </div>
 
                 <div class="modal-item">
-                    <div class="modal-label">Parked Time</div>
+                    <div class="modal-label">Last Seen</div>
                     <div class="modal-value" id="timeDisplay">-</div>
                 </div>
 
                 <div class="modal-item">
-                    <div class="modal-label">Decision Confidence</div>
+                    <div class="modal-label">Confidence</div>
                     <div class="modal-value" id="decisionConfidenceDisplay">-</div>
                 </div>
 
                 <div class="modal-item">
-                    <div class="modal-label">Source Device</div>
+                    <div class="modal-label">Reported By</div>
                     <div class="modal-value" id="deviceIdDisplay">-</div>
                 </div>
 
                 <div class="modal-item">
-                    <div class="modal-label">Decision Reason</div>
+                    <div class="modal-label">Resolution Note</div>
                     <div class="modal-value" id="decisionReasonDisplay">-</div>
                 </div>
             </div>
@@ -1396,17 +1548,17 @@
 
         function describeDecisionReason(reason) {
             const labels = {
-                ambiguous_location: "Location is ambiguous between nearby spaces.",
-                competing_detection_for_nearby_spaces: "Nearby detections are competing for this space.",
-                insufficient_temporal_consensus: "Waiting for repeated consistent reads.",
+                ambiguous_location: "The detection overlaps nearby spaces.",
+                competing_detection_for_nearby_spaces: "Another nearby reading is competing for this space.",
+                insufficient_temporal_consensus: "The system is waiting for another matching read.",
                 no_valid_detection: "No valid detection supports this space right now.",
-                no_recent_valid_detection: "Recent supporting detections expired.",
-                legacy_empty_update: "Legacy empty update cleared the previous state.",
-                manual_toggle: "Manually set from the website."
+                no_recent_valid_detection: "Earlier supporting detections are now out of date.",
+                legacy_empty_update: "A newer empty-lot update cleared the previous result.",
+                manual_toggle: "Updated manually from the dashboard."
             };
 
             if (!reason) {
-                return "Resolved with stable backend evidence.";
+                return "Marked using the strongest available evidence.";
             }
             return labels[reason] || reason.replace(/_/g, " ");
         }
@@ -1603,8 +1755,8 @@
                         <div class="section-card">
                             <h3>${esc(sectionData.name)}</h3>
                             <div class="section-meta">
-                                ${occupied} occupied / ${available} available / ${uncertain} uncertain<br>
-                                ${total} mapped stalls
+                                ${occupied} occupied / ${available} available / ${uncertain} need review<br>
+                                ${total} mapped spaces
                             </div>
                         </div>
                     `;
@@ -1730,8 +1882,8 @@
             if (!allDetections.length) {
                 summary.innerHTML = `
                     <div class="section-card">
-                        <h3>No Detections Yet</h3>
-                        <div class="section-meta">Add crack and sign coordinates to the backend payload and they will appear here automatically.</div>
+                        <h3>No Detections Available</h3>
+                        <div class="section-meta">Crack and sign detections will appear here as soon as they are received.</div>
                     </div>
                 `;
                 return;
@@ -1819,15 +1971,15 @@
         function updateHeader() {
             const statusElement = document.getElementById("connectionStatus");
             if (isBackendConnected) {
-                statusElement.textContent = "Connected to Backend";
+                statusElement.textContent = "System Online";
                 statusElement.className = "connection-status connected";
             } else {
-                statusElement.textContent = "Offline Mode";
+                statusElement.textContent = "Connection Lost";
                 statusElement.className = "connection-status disconnected";
             }
 
-            document.getElementById("deviceBadge").textContent = `Device: ${activeStreamDeviceId() || "waiting"}`;
-            document.getElementById("timeBadge").textContent = `Server time: ${timeText(appState.server_time)}`;
+            document.getElementById("deviceBadge").textContent = `Active device: ${activeStreamDeviceId() || "loading"}`;
+            document.getElementById("timeBadge").textContent = `Last sync: ${timeText(appState.server_time)}`;
         }
 
         function setCommandStatus(message, type = "") {
@@ -2024,7 +2176,7 @@
             }
 
             if (!observationSummaries.length) {
-                list.innerHTML = '<div class="placeholder-panel">No saved observation files for this device yet.</div>';
+                list.innerHTML = '<div class="placeholder-panel">No observation files are available for this device yet.</div>';
                 return;
             }
 
@@ -2035,7 +2187,7 @@
                 button.className = `observation-item${item.id === selectedObservationId ? " active" : ""}`;
                 button.innerHTML = `
                     <strong>${esc(item.filename)}</strong>
-                    <div class="observation-primary">Plate: ${esc(summary.plate_text || "No confirmed plate yet")}</div>
+                    <div class="observation-primary">Plate: ${esc(summary.plate_text || "Not yet confirmed")}</div>
                     <div>Seen: ${esc(timeText(summary.timestamp || item.created_at))}</div>
                     <div>Status: ${esc(humanizeSpaceStatus(summary.space_status || "EMPTY"))}</div>
                     <div>Confidence: ${esc(formatConfidence(summary.confidence))}</div>
@@ -2066,8 +2218,8 @@
                 rawLink.removeAttribute("href");
                 meta.innerHTML = "";
                 pre.textContent = observationError
-                    ? `Observation error: ${observationError}`
-                    : "Select an observation file from the list to inspect the raw received payload.";
+                    ? `Unable to load observation.\n${observationError}`
+                    : "Choose a file from the list to review the full payload.";
                 return;
             }
 
@@ -2089,7 +2241,7 @@
             `).join("");
 
             rawLink.href = observation.raw_url || "#";
-            rawLink.textContent = `Open ${observation.filename}`;
+            rawLink.textContent = `Open JSON for ${observation.filename}`;
             rawLink.classList.remove("hidden");
             pre.textContent = JSON.stringify(selectedObservationDetail.document || {}, null, 2);
         }
@@ -2102,13 +2254,13 @@
             setLastStreamEvent(detail);
 
             if (playerState.phase === "connected") {
-                setStreamHint(`Live WebRTC session active on ${activeStreamLabel()}`);
-                if (streamPlaybackState === "Idle" || streamPlaybackState === "Negotiating" || streamPlaybackState === "Reconnecting") {
+                setStreamHint(`Live feed active on ${activeStreamLabel()}`);
+                if (streamPlaybackState === "Idle" || streamPlaybackState === "Connecting" || streamPlaybackState === "Reconnecting") {
                     setStreamPlaybackState("Connected");
                 }
                 setStreamOverlay({
                     visible: false,
-                    title: "Live stream connected",
+                    title: "Live feed ready",
                     copy: detail,
                     busy: false
                 });
@@ -2117,10 +2269,10 @@
 
             if (playerState.phase === "connecting") {
                 setStreamHint(detail);
-                setStreamPlaybackState("Negotiating");
+                setStreamPlaybackState("Connecting");
                 setStreamOverlay({
                     visible: true,
-                    title: "Starting live stream",
+                    title: "Preparing live feed",
                     copy: detail,
                     busy: true
                 });
@@ -2132,7 +2284,7 @@
                 setStreamPlaybackState("Reconnecting");
                 setStreamOverlay({
                     visible: true,
-                    title: "Reconnecting stream",
+                    title: "Reconnecting feed",
                     copy: detail,
                     busy: true
                 });
@@ -2144,14 +2296,14 @@
                 setStreamPlaybackState("Stopped");
                 setStreamOverlay({
                     visible: true,
-                    title: "Stream stopped",
+                    title: "Feed stopped",
                     copy: detail,
                     busy: false
                 });
             }
         }
 
-        async function stopStreamPlayer(reason = "Live playback stopped.") {
+        async function stopStreamPlayer(reason = "Live feed stopped.") {
             const player = webrtcPlayer;
             webrtcPlayer = null;
             webrtcPlayerKey = "";
@@ -2170,7 +2322,7 @@
             setLastStreamEvent(reason);
             setStreamOverlay({
                 visible: true,
-                title: "Stream unavailable",
+                title: "Feed unavailable",
                 copy: reason,
                 busy: false
             });
@@ -2185,12 +2337,12 @@
             if (!window.MediaMtxWhepPlayer) {
                 setStreamConnectionState("Unavailable");
                 setStreamPlaybackState("Unavailable");
-                setStreamHint("WebRTC player script did not load.");
-                setLastStreamEvent("MediaMtxWhepPlayer is unavailable");
+                setStreamHint("Live player unavailable.");
+                setLastStreamEvent("Live player unavailable");
                 setStreamOverlay({
                     visible: true,
                     title: "Player unavailable",
-                    copy: "Reload the page and confirm /static/webrtc-player.js is being served.",
+                    copy: "Reload the page to restore the live feed player.",
                     busy: false
                 });
                 return;
@@ -2199,7 +2351,7 @@
             const playerKey = `${deviceId}:${endpoint}`;
             if (!webrtcPlayer || webrtcPlayerKey !== playerKey) {
                 if (webrtcPlayer) {
-                    await stopStreamPlayer(`Switching stream target to ${streamLabel}.`);
+                    await stopStreamPlayer(`Switching the live feed to ${streamLabel}.`);
                 }
 
                 const videoElement = document.getElementById("liveVideo");
@@ -2209,18 +2361,18 @@
                     endpoint,
                     onStateChange: handlePlayerStateChange,
                     onTrack: () => {
-                        setLastStreamEvent("Media track received from MediaMTX");
+                        setLastStreamEvent("Video received from the selected device");
                     }
                 });
 
                 setStreamConnectionState("Connecting");
-                setStreamPlaybackState("Negotiating");
-                setStreamHint(`Negotiating a WebRTC session for ${streamLabel}`);
-                setLastStreamEvent(`Opening ${streamLabel}`);
+                setStreamPlaybackState("Connecting");
+                setStreamHint(`Connecting to ${streamLabel}`);
+                setLastStreamEvent(`Opening the live feed on ${streamLabel}`);
                 setStreamOverlay({
                     visible: true,
-                    title: "Starting live stream",
-                    copy: "Waiting for MediaMTX to answer the WebRTC request.",
+                    title: "Preparing live feed",
+                    copy: "Connecting to the selected camera.",
                     busy: true
                 });
                 await webrtcPlayer.start();
@@ -2228,9 +2380,9 @@
             }
 
             if (forceReconnect && webrtcPlayer) {
-                setLastStreamEvent("Manual reconnect requested");
+                setLastStreamEvent("Reconnect requested");
                 setStreamHint(`Reconnecting ${streamLabel}`);
-                await webrtcPlayer.reconnect("Manual reconnect requested");
+                await webrtcPlayer.reconnect("Reconnect requested");
             }
         }
 
@@ -2239,34 +2391,34 @@
 
             video.addEventListener("playing", () => {
                 setStreamPlaybackState("Playing");
-                setStreamHint(`Live video playing on ${activeStreamLabel()}`);
-                setLastStreamEvent("Browser playback started");
+                setStreamHint(`Live video running on ${activeStreamLabel()}`);
+                setLastStreamEvent("Playback started");
                 setStreamOverlay({
                     visible: false,
-                    title: "Live stream connected",
-                    copy: "Video frames are arriving from MediaMTX.",
+                    title: "Live feed ready",
+                    copy: "Video is streaming normally.",
                     busy: false
                 });
             });
 
             video.addEventListener("waiting", () => {
                 setStreamPlaybackState("Buffering");
-                setLastStreamEvent("Browser waiting for the next frame");
+                setLastStreamEvent("Waiting for the next video frame");
                 setStreamOverlay({
                     visible: true,
-                    title: "Buffering live video",
-                    copy: "Media track is connected. Waiting for the next frame.",
+                    title: "Buffering video",
+                    copy: "Connected to the camera. Waiting for the next frame.",
                     busy: true
                 });
             });
 
             video.addEventListener("stalled", () => {
                 setStreamPlaybackState("Stalled");
-                setLastStreamEvent("Browser playback stalled");
+                setLastStreamEvent("Playback stalled");
                 setStreamOverlay({
                     visible: true,
-                    title: "Stream stalled",
-                    copy: "The browser is waiting for fresh frames from MediaMTX.",
+                    title: "Feed stalled",
+                    copy: "The player is waiting for fresh video data.",
                     busy: true
                 });
             });
@@ -2276,19 +2428,19 @@
                     return;
                 }
                 setStreamPlaybackState("Paused");
-                setLastStreamEvent("Browser playback paused");
+                setLastStreamEvent("Playback paused");
             });
 
             video.addEventListener("error", () => {
                 const message = video.error
                     ? `HTML5 video error ${video.error.code}`
-                    : "Browser playback error";
+                    : "Playback error";
                 setStreamPlaybackState("Error");
                 setLastStreamEvent(message);
                 setStreamOverlay({
                     visible: true,
-                    title: "Playback error",
-                    copy: "The browser could not render the WebRTC stream.",
+                    title: "Playback issue",
+                    copy: "The browser could not continue the live feed.",
                     busy: false
                 });
             });
@@ -2358,7 +2510,7 @@
 
             if (!appState.devices.length) {
                 select.disabled = true;
-                select.innerHTML = '<option value="">No devices yet</option>';
+                select.innerHTML = '<option value="">No devices available</option>';
                 selectedDeviceId = null;
             } else {
                 chooseDevice();
@@ -2373,7 +2525,7 @@
             }
 
             const device = getDevice();
-            document.getElementById("deviceStatus").textContent = device ? (device.is_online ? "Online" : "Waiting") : "Waiting";
+            document.getElementById("deviceStatus").textContent = device ? (device.is_online ? "Online" : "Offline") : "Offline";
             document.getElementById("deviceSeen").textContent = device ? timeText(device.last_seen_at) : "-";
             document.getElementById("deviceCamera").textContent = device ? (device.camera_on ? "On" : "Off") : "Unknown";
             document.getElementById("devicePending").textContent = device ? String(device.pending_command_count ?? 0) : "0";
@@ -2395,17 +2547,17 @@
             const commands = document.getElementById("commandsList");
             commands.innerHTML = "";
             if (!appState.recent_commands.length) {
-                commands.innerHTML = '<div class="placeholder-panel">No commands have been queued yet.</div>';
+                commands.innerHTML = '<div class="placeholder-panel">No commands have been sent yet.</div>';
             } else {
                 appState.recent_commands.forEach(command => {
                     const item = document.createElement("div");
                     item.className = "list-item";
                     item.innerHTML = `
-                        <strong>${esc(command.command)} #${esc(command.id)}</strong>
-                        <div>Status: ${esc(command.status)}</div>
+                        <strong>${esc(humanizeState(command.command))} #${esc(command.id)}</strong>
+                        <div>Status: ${esc(humanizeState(command.status))}</div>
                         <div>Device: ${esc(command.device_id)}</div>
                         <div>Created: ${esc(timeText(command.created_at))}</div>
-                        <div>Result: ${esc(JSON.stringify(command.result || {}))}</div>
+                        <div>Response: ${esc(JSON.stringify(command.result || {}))}</div>
                     `;
                     commands.appendChild(item);
                 });
@@ -2415,7 +2567,7 @@
             images.innerHTML = "";
             const recentImages = device ? (device.recent_images || []) : [];
             if (!recentImages.length) {
-                images.innerHTML = '<div class="placeholder-panel">No images uploaded for the selected device yet.</div>';
+                images.innerHTML = '<div class="placeholder-panel">No images are available for the selected device yet.</div>';
             } else {
                 recentImages.forEach(image => {
                     const card = document.createElement("div");
@@ -2464,7 +2616,7 @@
             } catch (error) {
                 isBackendConnected = false;
                 lastLoadError = error.message;
-                setCommandStatus(`Backend error: ${error.message}`, "error");
+                setCommandStatus(`Unable to refresh the dashboard: ${error.message}`, "error");
             }
 
             renderAll();
@@ -2490,11 +2642,11 @@
 
         async function sendDeviceCommand(command) {
             if (!selectedDeviceId) {
-                setCommandStatus("Select a device before sending a command.", "error");
+                setCommandStatus("Choose a device before sending a command.", "error");
                 return;
             }
 
-            setCommandStatus(`Sending ${command} to ${selectedDeviceId}...`);
+            setCommandStatus(`Sending ${humanizeState(command)} to ${selectedDeviceId}...`);
             try {
                 const result = await fetchJson(`${API_BASE}/devices/${selectedDeviceId}/commands`, {
                     method: "POST",
@@ -2510,10 +2662,10 @@
                     })
                 });
 
-                setCommandStatus(`Queued ${result.command.command} as command #${result.command.id}.`, "success");
+                setCommandStatus(`Queued ${humanizeState(result.command.command)} as command #${result.command.id}.`, "success");
                 scheduleRefresh(100);
             } catch (error) {
-                setCommandStatus(`Command failed: ${error.message}`, "error");
+                setCommandStatus(`Unable to send command: ${error.message}`, "error");
             }
         }
 
@@ -2538,6 +2690,34 @@
 
         function closeModal() {
             document.getElementById("vehicleModal").style.display = "none";
+        }
+
+        function updateFullscreenButtonLabel() {
+            const button = document.getElementById("fullscreenStreamBtn");
+            if (!button) {
+                return;
+            }
+            button.textContent = document.fullscreenElement === document.getElementById("videoWindow")
+                ? "Exit Full Screen"
+                : "Full Screen";
+        }
+
+        async function toggleLiveVideoFullscreen() {
+            const videoWindow = document.getElementById("videoWindow");
+            if (!document.fullscreenEnabled || !videoWindow || typeof videoWindow.requestFullscreen !== "function") {
+                setLastStreamEvent("Full screen is not available in this browser");
+                return;
+            }
+
+            try {
+                if (document.fullscreenElement === videoWindow) {
+                    await document.exitFullscreen();
+                } else {
+                    await videoWindow.requestFullscreen();
+                }
+            } catch (error) {
+                setLastStreamEvent("Unable to switch full screen mode");
+            }
         }
 
         function openTab(event, tabName) {
@@ -2579,6 +2759,12 @@
         document.getElementById("reconnectStreamBtn").addEventListener("click", () => {
             void syncStreamPlayer(true);
         });
+
+        document.getElementById("fullscreenStreamBtn").addEventListener("click", () => {
+            void toggleLiveVideoFullscreen();
+        });
+
+        document.addEventListener("fullscreenchange", updateFullscreenButtonLabel);
 
         document.getElementById("startJetsonBtn").addEventListener("click", () => {
             sendDeviceCommand("camera_on");
