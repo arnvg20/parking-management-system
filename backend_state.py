@@ -128,6 +128,7 @@ class BackendState:
             device.setdefault("latest_stream_by_source", {})
             device.setdefault("last_orientation", None)
             device.setdefault("last_location", None)
+            device.setdefault("last_streams", None)
 
             for source in device["latest_stream_by_source"].values():
                 source_frame_path = source.get("frame_path")
@@ -232,6 +233,7 @@ class BackendState:
             "latest_stream_by_source": {},
             "last_orientation": None,
             "last_location": None,
+            "last_streams": None,
             "updated_at": utcnow_iso(),
         }
 
@@ -626,6 +628,9 @@ class BackendState:
             location = payload.get("location")
             if isinstance(location, dict) and location:
                 device["last_location"] = location
+            streams = payload.get("streams")
+            if isinstance(streams, dict) and streams:
+                device["last_streams"] = streams
 
             snapshot = self._device_snapshot_locked(device_id)
             self._persist_state_locked()
@@ -650,6 +655,9 @@ class BackendState:
                 location = telemetry.get("location")
                 if isinstance(location, dict) and location:
                     device["last_location"] = location
+                streams = telemetry.get("streams")
+                if isinstance(streams, dict) and streams:
+                    device["last_streams"] = streams
 
             applied_spaces = []
             for update in parking_updates:
@@ -729,6 +737,9 @@ class BackendState:
                 location = telemetry.get("location")
                 if isinstance(location, dict) and location:
                     device["last_location"] = location
+                streams = telemetry.get("streams")
+                if isinstance(streams, dict) and streams:
+                    device["last_streams"] = streams
 
             snapshot = self._device_snapshot_locked(device_id)
             self._persist_state_locked()

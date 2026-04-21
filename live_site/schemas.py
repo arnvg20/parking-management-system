@@ -103,6 +103,33 @@ class PlateDetectionPayload(BaseModel):
     source_camera: str | None = None
 
 
+class StreamInfoPayload(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    role: str | None = None
+    label: str | None = None
+    provider: str | None = None
+    transport: str | None = None
+    stream_path: str | None = None
+    iframe_url: str | None = None
+    webrtc_url: str | None = None
+    whep_url: str | None = None
+    width: int | None = None
+    height: int | None = None
+    nominal_fps: float | None = None
+    device_path: str | None = None
+    running: bool | None = None
+    source_id: int | None = None
+    updated_at_utc: str | None = None
+
+
+class DeviceStreamsPayload(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    viewer: StreamInfoPayload | None = None
+    processor: StreamInfoPayload | None = None
+
+
 class JetsonTelemetryEnvelope(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -121,6 +148,7 @@ class JetsonTelemetryEnvelope(BaseModel):
     plate_detections: list[PlateDetectionPayload] = Field(default_factory=list)
     orientation: OrientationPayload | None = None
     location: LocationPayload | None = None
+    streams: DeviceStreamsPayload | None = None
 
 
 def empty_telemetry_snapshot() -> dict[str, object | None]:

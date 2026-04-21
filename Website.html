@@ -1352,12 +1352,13 @@
                     <div class="video-header">
                         <div>
                             <h2 id="processorStreamTitle">Processor Camera</h2>
-                            <div id="processorStreamHint">Latest frame from the CV processor</div>
+                            <div id="processorStreamHint">Live processor feed</div>
                         </div>
                     </div>
                     <div class="video-window">
+                        <video id="processorStreamVideo" class="live-stream" autoplay muted playsinline style="display:none;"></video>
                         <img id="processorStreamImg" class="live-stream" alt="Processor camera feed"
-                             style="width:100%;height:100%;object-fit:contain;background:#000;">
+                             style="display:none;width:100%;height:100%;object-fit:contain;background:#000;">
                     </div>
                 </div>
 
@@ -1609,6 +1610,8 @@
         let telemetryPingTimer = null;
         let webrtcPlayer = null;
         let webrtcPlayerKey = "";
+        let processorWhepPlayer = null;
+        let processorWhepPlayerKey = "";
         let liveTelemetrySnapshot = {};
         let streamPlaybackState = "Idle";
         let pageClosing = false;
@@ -2852,31 +2855,64 @@
             };
         }
 
-        function renderProcessorStream(device) {
+        async function renderProcessorStream(device) {
             const card = document.getElementById("processorStreamCard");
-            const img = document.getElementById("processorStreamImg");
+            const videoEl = document.getElementById("processorStreamVideo");
+            const imgEl = document.getElementById("processorStreamImg");
             const title = document.getElementById("processorStreamTitle");
             const hint = document.getElementById("processorStreamHint");
 
+            // Prefer streams.processor (WebRTC via MediaMTX)
+            const streams = device && device.last_streams ? device.last_streams : {};
+            const processorStream = streams.processor || null;
+
+            // Fallback: MJPEG source uploaded via /api/jetson/upload-frame
             const sources = device && device.latest_stream_by_source ? device.latest_stream_by_source : {};
-            const processorSource = Object.values(sources).find(s => s.camera_role === "processor");
+            const mjpegSource = Object.values(sources).find(s => s.camera_role === "processor") || null;
 
-            if (!processorSource) {
+            if (processorStream && window.MediaMtxWhepPlayer) {
+                card.style.display = "";
+                title.textContent = processorStream.label || "Processor Camera";
+                hint.textContent = processorStream.updated_at_utc
+                    ? "Updated: " + timeText(processorStream.updated_at_utc)
+                    : "Live processor feed";
+                videoEl.style.display = "";
+                imgEl.style.display = "none";
+
+                const whepEndpoint = `${API_BASE}/webrtc/${encodeURIComponent(processorStream.stream_path)}/whep`;
+                if (!processorWhepPlayer || processorWhepPlayerKey !== whepEndpoint) {
+                    if (processorWhepPlayer) {
+                        try { await processorWhepPlayer.stop(); } catch (e) {}
+                    }
+                    processorWhepPlayerKey = whepEndpoint;
+                    processorWhepPlayer = new window.MediaMtxWhepPlayer({
+                        videoElement: videoEl,
+                        endpoint: whepEndpoint,
+                        onStateChange: () => {},
+                    });
+                    await processorWhepPlayer.start();
+                }
+            } else if (mjpegSource) {
+                card.style.display = "";
+                title.textContent = mjpegSource.label || "Processor Camera";
+                hint.textContent = mjpegSource.frame_updated_at
+                    ? "Last frame: " + timeText(mjpegSource.frame_updated_at)
+                    : "Latest frame from the CV processor";
+                videoEl.style.display = "none";
+                imgEl.style.display = "";
+                const mjpegUrl = mjpegSource.mjpeg_url;
+                if (imgEl.dataset.mjpegUrl !== mjpegUrl) {
+                    imgEl.dataset.mjpegUrl = mjpegUrl;
+                    imgEl.src = mjpegUrl + "?ts=" + Date.now();
+                }
+            } else {
+                if (processorWhepPlayer) {
+                    try { await processorWhepPlayer.stop(); } catch (e) {}
+                    processorWhepPlayer = null;
+                    processorWhepPlayerKey = "";
+                }
                 card.style.display = "none";
-                img.src = "";
-                return;
-            }
-
-            card.style.display = "";
-            title.textContent = processorSource.label || "Processor Camera";
-            hint.textContent = processorSource.frame_updated_at
-                ? "Last frame: " + timeText(processorSource.frame_updated_at)
-                : "Latest frame from the CV processor";
-
-            const mjpegUrl = processorSource.mjpeg_url;
-            if (img.dataset.mjpegUrl !== mjpegUrl) {
-                img.dataset.mjpegUrl = mjpegUrl;
-                img.src = mjpegUrl + "?ts=" + Date.now();
+                imgEl.src = "";
             }
         }
 
@@ -2911,7 +2947,7 @@
             });
             document.getElementById("reconnectStreamBtn").disabled = !activeStreamDeviceId();
             renderTelemetrySummary(device);
-            renderProcessorStream(device);
+            void renderProcessorStream(device);
             void syncStreamPlayer();
         }
 
