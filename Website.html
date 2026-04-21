@@ -2889,6 +2889,11 @@
                         videoElement: videoEl,
                         endpoint: whepEndpoint,
                         onStateChange: () => {},
+                        onTrack: () => {
+                            window.setTimeout(() => {
+                                videoEl.play().catch(() => {});
+                            }, 60);
+                        },
                     });
                     await processorWhepPlayer.start();
                 }
