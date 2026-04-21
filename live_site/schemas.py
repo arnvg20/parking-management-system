@@ -9,6 +9,19 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+class PowerTelemetryPayload(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    battery_channel: str | None = None
+    pack_voltage_v: float | None = None
+    shutdown_threshold_v: float | None = None
+    power_action: str | None = None
+    will_shutdown: bool | None = None
+    status: str | None = None
+    message: str | None = None
+    low_voltage_duration_sec: float | None = None
+
+
 class TelemetryUpdate(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -20,6 +33,7 @@ class TelemetryUpdate(BaseModel):
     )
     confidence: float | None = None
     timestamp: str | None = None
+    power: PowerTelemetryPayload | None = None
     robot_status: str | None = Field(
         default=None,
         validation_alias=AliasChoices("robot_status", "status"),
@@ -71,6 +85,7 @@ class JetsonTelemetryEnvelope(BaseModel):
         validation_alias=AliasChoices("robot_status", "status"),
     )
     timestamp: str | None = None
+    power: PowerTelemetryPayload | None = None
     plate_detections: list[PlateDetectionPayload] = Field(default_factory=list)
 
 
@@ -81,6 +96,7 @@ def empty_telemetry_snapshot() -> dict[str, object | None]:
         "detected_plate": None,
         "confidence": None,
         "timestamp": None,
+        "power": None,
         "robot_status": None,
         "source": "waiting-for-telemetry",
         "received_at": utc_now_iso(),

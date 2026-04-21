@@ -39,7 +39,7 @@ from .mediamtx import (
     filter_response_headers,
     rewrite_location_header,
 )
-from .schemas import TelemetryUpdate
+from .schemas import PowerTelemetryPayload, TelemetryUpdate
 from .space_assignment import LotSpaceAssociationConfig, LotSpaceAssociationService
 from .telemetry import DemoTelemetryPublisher, TelemetryHub
 
@@ -129,8 +129,16 @@ def _resolve_device_id(
     return value
 
 
+def _normalize_power_payload(power_payload: Any) -> dict[str, Any] | None:
+    if not isinstance(power_payload, dict):
+        return None
+    return PowerTelemetryPayload.model_validate(power_payload).model_dump(exclude_none=False)
+
+
 def _normalize_frontend_telemetry(payload: dict[str, Any]) -> dict[str, Any]:
     telemetry_payload = payload.get("telemetry") if isinstance(payload.get("telemetry"), dict) else payload
+    power_present = isinstance(telemetry_payload, dict) and "power" in telemetry_payload
+    normalized_power = _normalize_power_payload(telemetry_payload.get("power")) if power_present else None
     space_resolution = (
         telemetry_payload.get("space_resolution")
         if isinstance(telemetry_payload.get("space_resolution"), list)
@@ -195,6 +203,7 @@ def _normalize_frontend_telemetry(payload: dict[str, Any]) -> dict[str, Any]:
         normalized["latitude"] = enriched_payload.get("latitude")
     if enriched_payload.get("longitude") is not None and "longitude" not in normalized:
         normalized["longitude"] = enriched_payload.get("longitude")
+    normalized["power"] = normalized_power
     normalized.setdefault("source", payload.get("source") or "jetson")
     return normalized
 

@@ -7,6 +7,16 @@
   "stream_enabled": true,
   "robot_status": "Patrol",
   "timestamp": "2026-04-16T15:32:10Z",
+  "power": {
+    "battery_channel": "CH1",
+    "pack_voltage_v": 12.84,
+    "shutdown_threshold_v": 12.0,
+    "power_action": "stay_on",
+    "will_shutdown": false,
+    "status": "monitoring",
+    "message": "Battery voltage is healthy.",
+    "low_voltage_duration_sec": 0.0
+  },
   "plate_detections": [
     {
       "plate_read": "ABC1234",

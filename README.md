@@ -104,6 +104,7 @@ Expected telemetry fields:
 - `confidence`
 - `timestamp`
 - `robot_status`
+- `power`: optional Jetson battery state. The object can include `battery_channel`, `pack_voltage_v`, `shutdown_threshold_v`, `power_action`, `will_shutdown`, `status`, `message`, and `low_voltage_duration_sec`.
 
 For raw Jetson bridge payloads, the server-side plate matcher also accepts `gps.lat`, `gps.lon`, `plate_text`, `detected_at`, `bbox_xyxy`, and `source_camera`. When bbox metadata is present, the backend first keeps only the strongest detections per camera/time window, then runs the existing GPS polygon matcher and temporal smoothing logic on the survivors.
 

@@ -247,10 +247,13 @@ class BackendState:
 
         primary_detection = detections[0] if detections else {}
         primary_location = primary_detection.get("location") if isinstance(primary_detection.get("location"), dict) else {}
+        if not primary_location:
+            primary_location = primary_detection.get("gps") if isinstance(primary_detection.get("gps"), dict) else {}
         primary_update = parking_updates[0] if parking_updates else {}
         lot_status = telemetry.get("lot_status") if isinstance(telemetry.get("lot_status"), dict) else {}
         plate_status = lot_status.get("plate") if isinstance(lot_status.get("plate"), dict) else {}
         gps_status = lot_status.get("gps") if isinstance(lot_status.get("gps"), dict) else {}
+        power_status = telemetry.get("power") if isinstance(telemetry.get("power"), dict) else {}
         resolved_occupied = next(
             (
                 item
@@ -347,6 +350,14 @@ class BackendState:
             "latitude": latitude,
             "longitude": longitude,
             "robot_status": robot_status,
+            "battery_channel": power_status.get("battery_channel"),
+            "pack_voltage_v": power_status.get("pack_voltage_v"),
+            "shutdown_threshold_v": power_status.get("shutdown_threshold_v"),
+            "power_action": power_status.get("power_action"),
+            "will_shutdown": power_status.get("will_shutdown"),
+            "power_status": power_status.get("status"),
+            "power_message": power_status.get("message"),
+            "low_voltage_duration_sec": power_status.get("low_voltage_duration_sec"),
             "detection_count": len(detections),
             "parking_update_count": len(parking_updates),
         }

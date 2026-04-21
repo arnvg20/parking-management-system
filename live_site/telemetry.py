@@ -34,8 +34,10 @@ class TelemetryHub:
     async def publish(self, update: TelemetryUpdate | dict[str, object]) -> dict[str, object | None]:
         if isinstance(update, TelemetryUpdate):
             incoming = update.model_dump(exclude_none=True)
+            if "power" in update.model_fields_set and update.power is None:
+                incoming["power"] = None
         else:
-            incoming = {key: value for key, value in update.items() if value is not None}
+            incoming = {key: value for key, value in update.items() if value is not None or key == "power"}
 
         async with self._lock:
             snapshot = dict(self._latest_snapshot)
@@ -93,6 +95,16 @@ class DemoTelemetryPublisher:
                     "confidence": round(0.88 + ((step % 5) * 0.02), 2),
                     "timestamp": utc_now_iso(),
                     "robot_status": ["Patrolling", "Inspecting", "Holding position"][step % 3],
+                    "power": {
+                        "battery_channel": "CH1",
+                        "pack_voltage_v": round(12.7 + (offset * 0.18), 2),
+                        "shutdown_threshold_v": 12.0,
+                        "power_action": "stay_on",
+                        "will_shutdown": False,
+                        "status": "monitoring",
+                        "message": "Demo battery voltage is healthy.",
+                        "low_voltage_duration_sec": 0.0,
+                    },
                     "source": "demo-generator",
                 }
             )

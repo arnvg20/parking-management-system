@@ -739,6 +739,78 @@
             text-align: right;
         }
 
+        .power-summary {
+            display: grid;
+            gap: 12px;
+            margin-top: 14px;
+            padding: 16px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            border-left: 4px solid var(--border-strong);
+            background: var(--surface-muted);
+        }
+
+        .power-summary[data-tone="ok"] {
+            border-left-color: var(--success);
+            background: #f0faf4;
+        }
+
+        .power-summary[data-tone="warning"] {
+            border-left-color: var(--warning);
+            background: #fff8ea;
+        }
+
+        .power-summary[data-tone="danger"] {
+            border-left-color: var(--danger);
+            background: #fff1f1;
+        }
+
+        .power-summary-header {
+            display: flex;
+            justify-content: space-between;
+            gap: 16px;
+            align-items: center;
+            flex-wrap: wrap;
+            color: var(--muted);
+            font-weight: 700;
+        }
+
+        .power-summary-header strong {
+            color: var(--ink);
+            text-align: right;
+            font-size: 18px;
+            line-height: 1.25;
+        }
+
+        .power-summary-grid {
+            display: grid;
+            gap: 0;
+            border-top: 1px solid var(--border);
+        }
+
+        .power-metric {
+            display: grid;
+            grid-template-columns: minmax(128px, 0.85fr) minmax(0, 1.15fr);
+            gap: 12px;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid var(--border);
+            color: var(--muted);
+        }
+
+        .power-metric strong {
+            color: var(--ink);
+            text-align: right;
+            line-height: 1.35;
+            overflow-wrap: anywhere;
+        }
+
+        .power-message {
+            color: var(--muted);
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
         .hidden {
             display: none !important;
         }
@@ -1081,6 +1153,28 @@
                 grid-template-columns: 1fr;
             }
 
+            .power-summary-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .power-summary-header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .power-summary-header strong {
+                text-align: left;
+            }
+
+            .power-metric {
+                grid-template-columns: 1fr;
+                gap: 4px;
+            }
+
+            .power-metric strong {
+                text-align: left;
+            }
+
             .telemetry-line {
                 flex-direction: column;
                 align-items: flex-start;
@@ -1267,6 +1361,22 @@
                             <div class="telemetry-line"><span>Timestamp</span><strong id="telemetryTimestamp">-</strong></div>
                             <div class="telemetry-line"><span>Robot Status</span><strong id="telemetryStatus">-</strong></div>
                         </div>
+
+                        <div id="powerSummary" class="power-summary" data-tone="unknown">
+                            <div class="power-summary-header">
+                                <span>Battery / Power</span>
+                                <strong id="powerState">Battery telemetry unavailable</strong>
+                            </div>
+                            <div class="power-summary-grid">
+                                <div class="power-metric"><span>Voltage</span><strong id="powerVoltage">Battery data unavailable</strong></div>
+                                <div class="power-metric"><span>Threshold</span><strong id="powerThreshold">Not available yet</strong></div>
+                                <div class="power-metric"><span>Jetson Decision</span><strong id="powerAction">Unknown</strong></div>
+                                <div class="power-metric"><span>Will Shut Down</span><strong id="powerShutdown">Unknown</strong></div>
+                                <div class="power-metric"><span>Battery Channel</span><strong id="powerChannel">Unknown</strong></div>
+                                <div class="power-metric"><span>Low Voltage Time</span><strong id="powerLowDuration">Not available yet</strong></div>
+                            </div>
+                            <div id="powerMessage" class="power-message">Battery telemetry is not available yet.</div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1443,6 +1553,12 @@
             cracks: [],
             signs: []
         };
+        const POWER_ACTION_LABELS = {
+            stay_on: "Battery OK",
+            stay_on_for_now: "Battery low, shutdown pending if voltage stays low",
+            safe_shutdown: "Safe shutdown triggered",
+            unknown: "Battery telemetry unavailable"
+        };
 
         const esc = value => String(value ?? "")
             .replaceAll("&", "&amp;")
@@ -1495,6 +1611,61 @@
                 return `${(numeric * 100).toFixed(1)}%`;
             }
             return `${numeric.toFixed(1)}%`;
+        }
+
+        function hasOwn(object, key) {
+            return Object.prototype.hasOwnProperty.call(object || {}, key);
+        }
+
+        function normalizePowerTelemetry(value) {
+            if (!value || typeof value !== "object" || Array.isArray(value)) {
+                return null;
+            }
+            return value;
+        }
+
+        function getPowerTelemetry(device) {
+            const telemetry = device ? (device.last_telemetry || {}) : {};
+            if (hasOwn(liveTelemetrySnapshot, "power")) {
+                return normalizePowerTelemetry(liveTelemetrySnapshot.power);
+            }
+            if (hasOwn(telemetry, "power")) {
+                return normalizePowerTelemetry(telemetry.power);
+            }
+            return null;
+        }
+
+        function formatVoltage(value, unavailableText = "Not available yet") {
+            const numeric = Number(value);
+            return Number.isFinite(numeric) ? `${numeric.toFixed(2)} V` : unavailableText;
+        }
+
+        function formatDurationSeconds(value) {
+            const numeric = Number(value);
+            return Number.isFinite(numeric) ? `${numeric.toFixed(1)} s` : "Not available yet";
+        }
+
+        function powerActionLabel(power) {
+            const action = String(power?.power_action || "unknown").trim().toLowerCase();
+            const label = POWER_ACTION_LABELS[action] || POWER_ACTION_LABELS.unknown;
+            if (power?.will_shutdown === true && action !== "safe_shutdown") {
+                return `${label} - shutdown flagged by Jetson`;
+            }
+            return label;
+        }
+
+        function powerTone(power) {
+            const action = String(power?.power_action || "unknown").trim().toLowerCase();
+            if (power?.will_shutdown === true || action === "safe_shutdown") {
+                return "danger";
+            }
+            if (action === "stay_on_for_now") {
+                return "warning";
+            }
+            if (action === "stay_on") {
+                return "ok";
+            }
+            return "unknown";
         }
 
         async function fetchJson(url, options = {}) {
@@ -2085,6 +2256,38 @@
             document.getElementById("telemetryConfidence").textContent = formatConfidence(telemetry.confidence);
             document.getElementById("telemetryTimestamp").textContent = timeText(telemetry.timestamp);
             document.getElementById("telemetryStatus").textContent = telemetry.robot_status || "-";
+            renderPowerSummary(device);
+        }
+
+        function renderPowerSummary(device) {
+            const power = getPowerTelemetry(device);
+            const powerBox = document.getElementById("powerSummary");
+            const stateText = power ? powerActionLabel(power) : POWER_ACTION_LABELS.unknown;
+            const shutdownText = power?.will_shutdown === true
+                ? "Yes"
+                : power?.will_shutdown === false
+                    ? "No"
+                    : "Unknown";
+            const voltageText = power && power.pack_voltage_v !== null && power.pack_voltage_v !== undefined
+                ? formatVoltage(power.pack_voltage_v, "Battery data unavailable")
+                : "Battery data unavailable";
+            const messageText = power
+                ? firstPresent(power.message, power.status ? `Power status: ${humanizeState(power.status)}` : null, "No battery message provided.")
+                : "Battery telemetry is not available yet.";
+
+            powerBox.dataset.tone = powerTone(power);
+            document.getElementById("powerState").textContent = stateText;
+            document.getElementById("powerVoltage").textContent = voltageText;
+            document.getElementById("powerThreshold").textContent = power
+                ? formatVoltage(power.shutdown_threshold_v)
+                : "Not available yet";
+            document.getElementById("powerAction").textContent = stateText;
+            document.getElementById("powerShutdown").textContent = shutdownText;
+            document.getElementById("powerChannel").textContent = power?.battery_channel || "Unknown";
+            document.getElementById("powerLowDuration").textContent = power
+                ? formatDurationSeconds(power.low_voltage_duration_sec)
+                : "Not available yet";
+            document.getElementById("powerMessage").textContent = messageText;
         }
 
         function renderTelemetryJson(device) {
@@ -2095,7 +2298,8 @@
                 "detected_plate",
                 "confidence",
                 "timestamp",
-                "robot_status"
+                "robot_status",
+                "power"
             ];
             const hasLiveTelemetry = liveTelemetryKeys.some(key => (
                 liveTelemetrySnapshot[key] !== null
