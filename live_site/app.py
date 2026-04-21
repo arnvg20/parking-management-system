@@ -52,7 +52,8 @@ WHEP_PROXY_PREFIX = "/api/webrtc"
 BASE_DIR = Path(__file__).resolve().parent.parent
 SUPPORTED_COMMANDS = {"camera_on", "camera_off", "capture_image"}
 MAX_COMMAND_WAIT_SECONDS = 25
-load_sample_vehicles()
+if settings.demo_telemetry_enabled:
+    load_sample_vehicles()
 state = BackendState(
     parking_spaces,
     find_matching_space,

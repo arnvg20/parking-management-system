@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 import threading
 import uuid
 from collections import defaultdict, deque
@@ -16,6 +17,15 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
+
+_PLATE_PATTERN = re.compile(r'^[A-Z]{4}[0-9]{3}$')
+
+
+def _normalize_plate(raw: str | None) -> str | None:
+    if not raw:
+        return None
+    normalized = str(raw).upper().replace(' ', '').replace('-', '')
+    return normalized if _PLATE_PATTERN.match(normalized) else None
 
 
 def utcnow() -> datetime:
@@ -372,19 +382,20 @@ class LotSpaceAssociationService:
             or fallback_timestamp
             or utcnow_iso()
         )
+        raw_plate = (
+            detection_payload.get("plate_read")
+            or detection_payload.get("detected_plate")
+            or detection_payload.get("plate")
+            or detection_payload.get("plate_text")
+            or detection_payload.get("license_plate")
+        )
         return IncomingPlateDetection(
             detection_id=str(
                 detection_payload.get("detection_id")
                 or detection_payload.get("event_id")
                 or uuid.uuid4().hex[:10]
             ),
-            plate_read=(
-                detection_payload.get("plate_read")
-                or detection_payload.get("detected_plate")
-                or detection_payload.get("plate")
-                or detection_payload.get("plate_text")
-                or detection_payload.get("license_plate")
-            ),
+            plate_read=_normalize_plate(raw_plate),
             timestamp=timestamp,
             latitude=latitude,
             longitude=longitude,

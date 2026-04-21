@@ -1281,10 +1281,6 @@
                     <strong class="status-item-value"><span id="occupiedCount">0</span></strong>
                 </div>
                 <div class="status-item">
-                    <div class="status-item-label"><span class="status-color uncertain"></span>Uncertain</div>
-                    <strong class="status-item-value"><span id="uncertainCount">0</span></strong>
-                </div>
-                <div class="status-item">
                     <div class="status-item-label">Total Spaces</div>
                     <strong class="status-item-value"><span id="totalCount">0</span></strong>
                 </div>
@@ -1299,7 +1295,7 @@
                         <div class="legend-chip"><span class="legend-swatch section"></span>Section boundary</div>
                         <div class="legend-chip"><span class="legend-swatch available"></span>Available space</div>
                         <div class="legend-chip"><span class="legend-swatch occupied"></span>Occupied space</div>
-                        <div class="legend-chip"><span class="legend-swatch uncertain"></span>Uncertain</div>
+
                     </div>
                     <div id="lotMap" class="lot-map"></div>
                 </div>
@@ -1797,7 +1793,7 @@
                 case "OCCUPIED":
                     return "Occupied";
                 case "UNCERTAIN":
-                    return "Uncertain";
+                    return "Empty";
                 default:
                     return "Empty";
             }
@@ -1824,9 +1820,7 @@
             const status = normalizeSpaceStatus(spaceData);
             const fillColor = status === "OCCUPIED"
                 ? "#d32f2f"
-                : status === "UNCERTAIN"
-                    ? "#f9a825"
-                    : "#2e7d32";
+                : "#2e7d32";
             return {
                 color: "#ffffff",
                 weight: 1,
@@ -1963,8 +1957,6 @@
                 ];
                 if (status === "OCCUPIED" && spaceData.vehicle_data && spaceData.vehicle_data.license_plate) {
                     tooltipLines.push(`Plate: ${esc(spaceData.vehicle_data.license_plate)}`);
-                } else if (status === "UNCERTAIN" && spaceData.decision_reason) {
-                    tooltipLines.push(esc(describeDecisionReason(spaceData.decision_reason)));
                 }
                 if (typeof spaceData.decision_confidence === "number") {
                     tooltipLines.push(`Confidence: ${formatConfidence(spaceData.decision_confidence)}`);
@@ -2004,15 +1996,14 @@
                 .map(([sectionId, sectionData]) => {
                     const sectionSpaces = Object.entries(spaces || {}).filter(([, space]) => space.section_id === sectionId);
                     const occupied = sectionSpaces.filter(([, space]) => normalizeSpaceStatus(space) === "OCCUPIED").length;
-                    const uncertain = sectionSpaces.filter(([, space]) => normalizeSpaceStatus(space) === "UNCERTAIN").length;
                     const total = sectionSpaces.length;
-                    const available = Math.max(total - occupied - uncertain, 0);
+                    const available = Math.max(total - occupied, 0);
 
                     return `
                         <div class="section-card">
                             <h3>${esc(sectionData.name)}</h3>
                             <div class="section-meta">
-                                ${occupied} occupied / ${available} available / ${uncertain} need review<br>
+                                ${occupied} occupied / ${available} available<br>
                                 ${total} mapped spaces
                             </div>
                         </div>
@@ -2211,7 +2202,6 @@
             const summary = appState.summary || {};
             document.getElementById("occupiedCount").textContent = summary.occupied_spaces ?? 0;
             document.getElementById("availableCount").textContent = summary.available_spaces ?? 0;
-            document.getElementById("uncertainCount").textContent = summary.uncertain_spaces ?? 0;
             document.getElementById("totalCount").textContent = summary.total_spaces ?? 0;
         }
 

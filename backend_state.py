@@ -675,6 +675,21 @@ class BackendState:
                 "updated_spaces": applied_spaces,
             }
 
+    def _evict_plate_from_other_spaces_locked(self, plate, current_space_id):
+        if not plate:
+            return
+        for space_id, space in self.parking_spaces.items():
+            if space_id == current_space_id:
+                continue
+            vehicle_data = space.get("vehicle_data")
+            if vehicle_data and vehicle_data.get("license_plate") == plate:
+                space["occupied"] = False
+                space["vehicle_data"] = None
+                space["status"] = "EMPTY"
+                space["decision_confidence"] = 0.9
+                space["decision_reason"] = "plate_reassigned_to_other_space"
+                space["last_resolved_at"] = utcnow_iso()
+
     def apply_space_decisions(self, device_id, space_decisions, telemetry=None):
         telemetry = telemetry or {}
         with self.lock:
@@ -706,6 +721,8 @@ class BackendState:
                 space["last_resolved_at"] = utcnow_iso()
 
                 if status == "OCCUPIED" and payload.get("plate_read"):
+                    plate = payload.get("plate_read")
+                    self._evict_plate_from_other_spaces_locked(plate, space_id)
                     space["occupied"] = True
                     last_orientation = self.devices.get(device_id, {}).get("last_orientation") or {}
                     space["vehicle_data"] = {
