@@ -739,6 +739,31 @@
             text-align: right;
         }
 
+        .heading-value {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            justify-content: flex-end;
+        }
+
+        .compass-needle {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            flex-shrink: 0;
+        }
+
+        .heading-side-badge {
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.03em;
+            padding: 2px 7px;
+            border-radius: 4px;
+            background: color-mix(in srgb, var(--accent) 15%, transparent);
+            color: var(--accent);
+            white-space: nowrap;
+        }
+
         .power-summary {
             display: grid;
             gap: 12px;
@@ -1387,6 +1412,17 @@
                             <div class="telemetry-line"><span>Confidence</span><strong id="telemetryConfidence">-</strong></div>
                             <div class="telemetry-line"><span>Timestamp</span><strong id="telemetryTimestamp">-</strong></div>
                             <div class="telemetry-line"><span>Robot Status</span><strong id="telemetryStatus">-</strong></div>
+                            <div class="telemetry-line" id="headingRow" style="display:none;">
+                                <span id="headingLabel">Heading</span>
+                                <div class="heading-value">
+                                    <svg id="compassNeedle" class="compass-needle" viewBox="0 0 20 20" aria-hidden="true">
+                                        <circle cx="10" cy="10" r="9" fill="none" stroke="var(--border)" stroke-width="1.5"/>
+                                        <polygon id="compassArrow" points="10,3 7,14 10,12 13,14" fill="var(--accent)"/>
+                                    </svg>
+                                    <strong id="telemetryHeading">-</strong>
+                                    <span id="headingSideBadge" class="heading-side-badge" style="display:none;"></span>
+                                </div>
+                            </div>
                         </div>
 
                         <div id="powerSummary" class="power-summary" data-tone="unknown">
@@ -2279,7 +2315,40 @@
                     telemetry.local_status?.state,
                     lotStatus.status
                 ),
+                heading_deg: firstPresent(
+                    liveTelemetrySnapshot.heading_deg,
+                    device && device.last_orientation && device.last_orientation.heading_deg,
+                    telemetry.orientation && telemetry.orientation.heading_deg,
+                    device && device.last_location && device.last_location.heading_deg,
+                    telemetry.location && telemetry.location.heading_deg
+                ),
+                heading_source: firstPresent(
+                    liveTelemetrySnapshot.heading_source,
+                    device && device.last_orientation && device.last_orientation.heading_source,
+                    telemetry.orientation && telemetry.orientation.heading_source,
+                    device && device.last_location && device.last_location.heading_source,
+                    telemetry.location && telemetry.location.heading_source
+                ),
             };
+        }
+
+        function getHeadingInfo(deg) {
+            const d = ((deg % 360) + 360) % 360;
+            let cardinal;
+            if      (d < 22.5  || d >= 337.5) cardinal = "N";
+            else if (d < 67.5)                cardinal = "NE";
+            else if (d < 112.5)               cardinal = "E";
+            else if (d < 157.5)               cardinal = "SE";
+            else if (d < 202.5)               cardinal = "S";
+            else if (d < 247.5)               cardinal = "SW";
+            else if (d < 292.5)               cardinal = "W";
+            else                              cardinal = "NW";
+
+            let side = null;
+            if (d >= 315 || d < 45)   side = "East side";
+            else if (d >= 135 && d < 225) side = "West side";
+
+            return { cardinal, side };
         }
 
         function renderTelemetrySummary(device) {
@@ -2290,6 +2359,34 @@
             document.getElementById("telemetryConfidence").textContent = formatConfidence(telemetry.confidence);
             document.getElementById("telemetryTimestamp").textContent = timeText(telemetry.timestamp);
             document.getElementById("telemetryStatus").textContent = telemetry.robot_status || "-";
+
+            const headingRow = document.getElementById("headingRow");
+            const headingDeg = telemetry.heading_deg;
+            if (headingDeg !== null && headingDeg !== undefined) {
+                headingRow.style.display = "";
+                const info = getHeadingInfo(headingDeg);
+                const sourceLabel = telemetry.heading_source === "compass" ? "Compass"
+                    : telemetry.heading_source === "gps_course" ? "GPS Course"
+                    : telemetry.heading_source || "";
+                const labelText = sourceLabel ? `Heading (${sourceLabel})` : "Heading";
+                document.getElementById("headingLabel").textContent = labelText;
+                document.getElementById("telemetryHeading").textContent =
+                    `${Math.round(headingDeg)}° ${info.cardinal}`;
+
+                const arrow = document.getElementById("compassArrow");
+                arrow.setAttribute("transform", `rotate(${headingDeg}, 10, 10)`);
+
+                const badge = document.getElementById("headingSideBadge");
+                if (info.side) {
+                    badge.style.display = "";
+                    badge.textContent = info.side;
+                } else {
+                    badge.style.display = "none";
+                }
+            } else {
+                headingRow.style.display = "none";
+            }
+
             renderPowerSummary(device);
         }
 

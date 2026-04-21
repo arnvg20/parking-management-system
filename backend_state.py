@@ -126,6 +126,8 @@ class BackendState:
             device.setdefault("latest_observation_id", None)
             device.setdefault("recent_observation_ids", [])
             device.setdefault("latest_stream_by_source", {})
+            device.setdefault("last_orientation", None)
+            device.setdefault("last_location", None)
 
             for source in device["latest_stream_by_source"].values():
                 source_frame_path = source.get("frame_path")
@@ -228,6 +230,8 @@ class BackendState:
             "latest_observation_id": None,
             "recent_observation_ids": [],
             "latest_stream_by_source": {},
+            "last_orientation": None,
+            "last_location": None,
             "updated_at": utcnow_iso(),
         }
 
@@ -616,6 +620,12 @@ class BackendState:
             device["last_seen_at"] = utcnow_iso()
             device["last_heartbeat"] = payload
             device["updated_at"] = utcnow_iso()
+            orientation = payload.get("orientation")
+            if isinstance(orientation, dict) and orientation:
+                device["last_orientation"] = orientation
+            location = payload.get("location")
+            if isinstance(location, dict) and location:
+                device["last_location"] = location
 
             snapshot = self._device_snapshot_locked(device_id)
             self._persist_state_locked()
@@ -633,6 +643,13 @@ class BackendState:
             device["last_seen_at"] = utcnow_iso()
             device["last_telemetry"] = telemetry or {}
             device["updated_at"] = utcnow_iso()
+            if isinstance(telemetry, dict):
+                orientation = telemetry.get("orientation")
+                if isinstance(orientation, dict) and orientation:
+                    device["last_orientation"] = orientation
+                location = telemetry.get("location")
+                if isinstance(location, dict) and location:
+                    device["last_location"] = location
 
             applied_spaces = []
             for update in parking_updates:
@@ -705,6 +722,13 @@ class BackendState:
             device["last_seen_at"] = utcnow_iso()
             device["last_telemetry"] = telemetry or {}
             device["updated_at"] = utcnow_iso()
+            if isinstance(telemetry, dict):
+                orientation = telemetry.get("orientation")
+                if isinstance(orientation, dict) and orientation:
+                    device["last_orientation"] = orientation
+                location = telemetry.get("location")
+                if isinstance(location, dict) and location:
+                    device["last_location"] = location
 
             snapshot = self._device_snapshot_locked(device_id)
             self._persist_state_locked()

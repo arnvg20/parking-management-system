@@ -22,6 +22,36 @@ class PowerTelemetryPayload(BaseModel):
     low_voltage_duration_sec: float | None = None
 
 
+class OrientationPayload(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    heading_deg: float | None = None
+    heading_source: str | None = None
+    heading_reference: str | None = None
+    compass_sensor: str | None = None
+    fix_timestamp_utc: str | None = None
+    updated_at_utc: str | None = None
+    status: str | None = None
+    device_path: str | None = None
+
+
+class LocationPayload(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    lat: float | None = Field(default=None, validation_alias=AliasChoices("lat", "latitude"))
+    lon: float | None = Field(default=None, validation_alias=AliasChoices("lon", "longitude"))
+    alt_m: float | None = None
+    heading_deg: float | None = None
+    heading_source: str | None = None
+    heading_reference: str | None = None
+    compass_sensor: str | None = None
+    speed_mps: float | None = None
+    fix_timestamp_utc: str | None = None
+    updated_at_utc: str | None = None
+    status: str | None = None
+    device_path: str | None = None
+
+
 class TelemetryUpdate(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -39,6 +69,8 @@ class TelemetryUpdate(BaseModel):
         validation_alias=AliasChoices("robot_status", "status"),
     )
     source: str | None = None
+    heading_deg: float | None = None
+    heading_source: str | None = None
 
 
 class DetectionLocationPayload(BaseModel):
@@ -87,6 +119,8 @@ class JetsonTelemetryEnvelope(BaseModel):
     timestamp: str | None = None
     power: PowerTelemetryPayload | None = None
     plate_detections: list[PlateDetectionPayload] = Field(default_factory=list)
+    orientation: OrientationPayload | None = None
+    location: LocationPayload | None = None
 
 
 def empty_telemetry_snapshot() -> dict[str, object | None]:

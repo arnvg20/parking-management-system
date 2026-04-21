@@ -22,7 +22,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from backend_state import BackendState
+from backend_state import BackendState, first_present
 from Tab1 import (
     environmental_detections,
     find_matching_space,
@@ -201,6 +201,21 @@ def _normalize_frontend_telemetry(payload: dict[str, Any]) -> dict[str, Any]:
         if location:
             enriched_payload.setdefault("latitude", location.get("lat"))
             enriched_payload.setdefault("longitude", location.get("lon"))
+    orientation_raw = telemetry_payload.get("orientation") if isinstance(telemetry_payload.get("orientation"), dict) else {}
+    location_raw = telemetry_payload.get("location") if isinstance(telemetry_payload.get("location"), dict) else {}
+    heading_deg = first_present(
+        orientation_raw.get("heading_deg"),
+        location_raw.get("heading_deg"),
+    )
+    heading_source = first_present(
+        orientation_raw.get("heading_source"),
+        location_raw.get("heading_source"),
+    )
+    if heading_deg is not None:
+        enriched_payload.setdefault("heading_deg", heading_deg)
+    if heading_source is not None:
+        enriched_payload.setdefault("heading_source", heading_source)
+
     parsed = TelemetryUpdate.model_validate(enriched_payload or {})
     normalized = parsed.model_dump(exclude_none=True)
     if enriched_payload.get("detected_plate") and "detected_plate" not in normalized:
