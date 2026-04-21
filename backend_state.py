@@ -125,6 +125,17 @@ class BackendState:
             device.setdefault("last_command_result", None)
             device.setdefault("latest_observation_id", None)
             device.setdefault("recent_observation_ids", [])
+            device.setdefault("latest_stream_by_source", {})
+
+            for source in device["latest_stream_by_source"].values():
+                source_frame_path = source.get("frame_path")
+                if source_frame_path and Path(source_frame_path).exists():
+                    try:
+                        source["_frame_bytes"] = Path(source_frame_path).read_bytes()
+                    except OSError:
+                        source["_frame_bytes"] = None
+                else:
+                    source["_frame_bytes"] = None
 
             if frame_path and Path(frame_path).exists():
                 try:
@@ -140,6 +151,8 @@ class BackendState:
         for device_id, device in self.devices.items():
             device_copy = copy.deepcopy(device)
             device_copy.pop("latest_frame_bytes", None)
+            for source in device_copy.get("latest_stream_by_source", {}).values():
+                source.pop("_frame_bytes", None)
             devices[device_id] = device_copy
 
         return {
@@ -214,6 +227,7 @@ class BackendState:
             "last_command_result": None,
             "latest_observation_id": None,
             "recent_observation_ids": [],
+            "latest_stream_by_source": {},
             "updated_at": utcnow_iso(),
         }
 
@@ -494,6 +508,14 @@ class BackendState:
     def _device_snapshot_locked(self, device_id):
         device = copy.deepcopy(self.devices[device_id])
         device.pop("latest_frame_bytes", None)
+
+        sources_snapshot = {}
+        for source_id, source in device.get("latest_stream_by_source", {}).items():
+            s = {k: v for k, v in source.items() if k != "_frame_bytes"}
+            s["snapshot_url"] = f"/api/devices/{device_id}/sources/{source_id}/snapshot"
+            s["mjpeg_url"] = f"/api/devices/{device_id}/sources/{source_id}/stream.mjpeg"
+            sources_snapshot[source_id] = s
+        device["latest_stream_by_source"] = sources_snapshot
 
         last_seen_value = device.get("last_seen_at")
         is_online = False
@@ -951,3 +973,72 @@ class BackendState:
             if not record:
                 return None
             return copy.deepcopy(record)
+
+    def save_source_frame(self, device_id, source_id, meta, frame_bytes):
+        with self.frame_condition:
+            if device_id not in self.devices:
+                self.devices[device_id] = self._device_template(device_id)
+
+            device = self.devices[device_id]
+            sources = device.setdefault("latest_stream_by_source", {})
+
+            safe_id = "".join(c for c in source_id if c.isalnum() or c in "-_")
+            file_path = self.frames_dir / f"{device_id}_src_{safe_id}_latest.jpg"
+            file_path.write_bytes(frame_bytes)
+
+            prev_version = sources.get(source_id, {}).get("frame_version", 0)
+            sources[source_id] = {
+                "source_id": source_id,
+                "camera_role": meta.get("camera_role", "processor"),
+                "label": meta.get("label", source_id),
+                "frame_path": str(file_path),
+                "frame_updated_at": utcnow_iso(),
+                "frame_version": int(prev_version) + 1,
+                "_frame_bytes": frame_bytes,
+            }
+            device["last_seen_at"] = utcnow_iso()
+            device["updated_at"] = utcnow_iso()
+
+            self._persist_state_locked()
+            self._emit_event_locked("frame.updated", {"device_id": device_id, "source_id": source_id})
+            self.frame_condition.notify_all()
+
+            return {
+                "device_id": device_id,
+                "source_id": source_id,
+                "frame_version": sources[source_id]["frame_version"],
+                "updated_at": sources[source_id]["frame_updated_at"],
+                "snapshot_url": f"/api/devices/{device_id}/sources/{source_id}/snapshot",
+                "mjpeg_url": f"/api/devices/{device_id}/sources/{source_id}/stream.mjpeg",
+            }
+
+    def get_source_frame_bytes(self, device_id, source_id):
+        with self.lock:
+            device = self.devices.get(device_id)
+            if not device:
+                return None
+            source = device.get("latest_stream_by_source", {}).get(source_id)
+            if not source or not source.get("_frame_bytes"):
+                return None
+            return {
+                "frame_bytes": source["_frame_bytes"],
+                "content_type": "image/jpeg",
+                "updated_at": source.get("frame_updated_at"),
+            }
+
+    def wait_for_next_source_frame(self, device_id, source_id, last_version=0, timeout=25):
+        with self.frame_condition:
+            deadline = time.time() + max(timeout, 0)
+            while True:
+                device = self.devices.get(device_id)
+                if device:
+                    source = device.get("latest_stream_by_source", {}).get(source_id)
+                    if source and source.get("_frame_bytes") and source.get("frame_version", 0) > last_version:
+                        return {
+                            "frame_bytes": source["_frame_bytes"],
+                            "frame_version": source["frame_version"],
+                        }
+                remaining = deadline - time.time()
+                if remaining <= 0:
+                    return None
+                self.frame_condition.wait(timeout=min(1.0, remaining))

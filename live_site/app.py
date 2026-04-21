@@ -548,6 +548,70 @@ async def jetson_upload_image(
     return {"status": "stored", "image": image_record}
 
 
+@app.post("/api/jetson/upload-frame")
+async def jetson_upload_frame(
+    request: Request,
+    frame: UploadFile = File(...),
+    device_id: str | None = Form(default=None),
+    source_id: str | None = Form(default=None),
+    meta: str | None = Form(default=None),
+) -> dict[str, Any]:
+    _require_jetson_auth(request)
+    resolved_device_id = _resolve_device_id(request, explicit_value=device_id)
+    resolved_source_id = (source_id or "").strip() or "processor"
+
+    try:
+        meta_dict = json.loads(meta) if meta else {}
+    except (ValueError, TypeError):
+        meta_dict = {}
+
+    frame_bytes = await frame.read()
+    result = await run_in_threadpool(
+        state.save_source_frame,
+        resolved_device_id,
+        resolved_source_id,
+        meta_dict,
+        frame_bytes,
+    )
+    return {"status": "stored", "source": result}
+
+
+@app.get("/api/devices/{device_id}/sources/{source_id}/snapshot")
+async def get_source_snapshot(device_id: str, source_id: str) -> Response:
+    result = await run_in_threadpool(state.get_source_frame_bytes, device_id, source_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="No frame available for this source")
+    return Response(content=result["frame_bytes"], media_type="image/jpeg")
+
+
+@app.get("/api/devices/{device_id}/sources/{source_id}/stream.mjpeg")
+async def stream_source_mjpeg(device_id: str, source_id: str, request: Request) -> StreamingResponse:
+    async def generate():
+        last_version = 0
+        while True:
+            if await request.is_disconnected():
+                break
+            result = await run_in_threadpool(
+                state.wait_for_next_source_frame, device_id, source_id, last_version, 10
+            )
+            if result is None:
+                continue
+            last_version = result["frame_version"]
+            frame_bytes = result["frame_bytes"]
+            yield (
+                b"--mjpegframe\r\n"
+                b"Content-Type: image/jpeg\r\n"
+                b"Content-Length: " + str(len(frame_bytes)).encode() + b"\r\n"
+                b"\r\n" + frame_bytes + b"\r\n"
+            )
+
+    return StreamingResponse(
+        generate(),
+        media_type="multipart/x-mixed-replace; boundary=mjpegframe",
+        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.get("/api/jetson/commands/next")
 async def jetson_next_command(request: Request, device_id: str, wait: int = 20) -> Response:
     _require_jetson_auth(request)
