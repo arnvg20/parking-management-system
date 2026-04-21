@@ -588,7 +588,6 @@ class BackendState:
     def get_system_snapshot(self):
         with self.lock:
             occupied_count = sum(1 for values in self.parking_spaces.values() if values["occupied"])
-            uncertain_count = sum(1 for values in self.parking_spaces.values() if values.get("status") == "UNCERTAIN")
             total_count = len(self.parking_spaces)
             return {
                 "server_time": utcnow_iso(),
@@ -599,8 +598,8 @@ class BackendState:
                 "summary": {
                     "total_spaces": total_count,
                     "occupied_spaces": occupied_count,
-                    "uncertain_spaces": uncertain_count,
-                    "available_spaces": total_count - occupied_count - uncertain_count,
+                    "uncertain_spaces": 0,
+                    "available_spaces": total_count - occupied_count,
                 },
             }
 
