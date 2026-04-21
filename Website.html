@@ -1027,6 +1027,13 @@
             overflow: hidden;
         }
 
+        .plate-image-placeholder {
+            padding: 18px 0;
+            text-align: center;
+            color: var(--muted);
+            font-size: 13px;
+        }
+
         .plate-image-preview img {
             display: block;
             width: 100%;
@@ -1274,7 +1281,7 @@
                     <strong class="status-item-value"><span id="occupiedCount">0</span></strong>
                 </div>
                 <div class="status-item">
-                    <div class="status-item-label"><span class="status-color uncertain"></span>Needs Review</div>
+                    <div class="status-item-label"><span class="status-color uncertain"></span>Uncertain</div>
                     <strong class="status-item-value"><span id="uncertainCount">0</span></strong>
                 </div>
                 <div class="status-item">
@@ -1292,7 +1299,7 @@
                         <div class="legend-chip"><span class="legend-swatch section"></span>Section boundary</div>
                         <div class="legend-chip"><span class="legend-swatch available"></span>Available space</div>
                         <div class="legend-chip"><span class="legend-swatch occupied"></span>Occupied space</div>
-                        <div class="legend-chip"><span class="legend-swatch uncertain"></span>Needs review</div>
+                        <div class="legend-chip"><span class="legend-swatch uncertain"></span>Uncertain</div>
                     </div>
                     <div id="lotMap" class="lot-map"></div>
                 </div>
@@ -1540,10 +1547,11 @@
                     <div class="modal-value" id="licensePlateDisplay">-</div>
                 </div>
 
-                <div class="modal-item hidden" id="plateImageItem">
+                <div class="modal-item" id="plateImageItem">
                     <div class="modal-label">Plate Image</div>
                     <div class="plate-image-preview">
                         <img id="plateImageDisplay" src="" alt="Detected license plate image">
+                        <div class="plate-image-placeholder">No image available</div>
                     </div>
                 </div>
 
@@ -1570,6 +1578,11 @@
                 <div class="modal-item">
                     <div class="modal-label">Reported By</div>
                     <div class="modal-value" id="deviceIdDisplay">-</div>
+                </div>
+
+                <div class="modal-item" id="modalHeadingItem" style="display:none;">
+                    <div class="modal-label">Robot Heading</div>
+                    <div class="modal-value" id="modalHeadingDisplay">-</div>
                 </div>
 
                 <div class="modal-item">
@@ -1968,7 +1981,7 @@
                         }
                     );
 
-                if (status === "OCCUPIED" && spaceData.vehicle_data) {
+                if (spaceData.vehicle_data) {
                     polygon.on("click", () => showVehicleInfo(spaceId));
                 }
             });
@@ -3090,29 +3103,53 @@
         function showVehicleInfo(spaceId) {
             const space = appState.parking_spaces[spaceId] || null;
             const vehicle = space ? space.vehicle_data : null;
-            if (!vehicle) {
-                return;
-            }
+            const status = normalizeSpaceStatus(space);
+            const isStale = vehicle && status !== "OCCUPIED";
 
             document.getElementById("spaceIdDisplay").textContent = spaceId;
-            document.getElementById("spaceStatusDisplay").textContent = humanizeSpaceStatus(normalizeSpaceStatus(space));
-            document.getElementById("licensePlateDisplay").textContent = vehicle.license_plate || "-";
-            document.getElementById("latitudeDisplay").textContent = formatCoordinate(vehicle.latitude);
-            document.getElementById("longitudeDisplay").textContent = formatCoordinate(vehicle.longitude);
-            document.getElementById("timeDisplay").textContent = timeText(vehicle.time);
-            document.getElementById("decisionConfidenceDisplay").textContent = formatConfidence(space && typeof space.decision_confidence === "number" ? space.decision_confidence : vehicle.confidence);
-            document.getElementById("deviceIdDisplay").textContent = vehicle.device_id || "-";
+            document.getElementById("spaceStatusDisplay").textContent =
+                humanizeSpaceStatus(status) + (isStale ? " (last detection)" : "");
+
+            document.getElementById("licensePlateDisplay").textContent = vehicle ? (vehicle.license_plate || "-") : "-";
+            document.getElementById("latitudeDisplay").textContent = vehicle ? formatCoordinate(vehicle.latitude) : "-";
+            document.getElementById("longitudeDisplay").textContent = vehicle ? formatCoordinate(vehicle.longitude) : "-";
+            document.getElementById("timeDisplay").textContent = vehicle ? timeText(vehicle.time) : "-";
+            document.getElementById("decisionConfidenceDisplay").textContent = vehicle
+                ? formatConfidence(space && typeof space.decision_confidence === "number" ? space.decision_confidence : vehicle.confidence)
+                : "-";
+            document.getElementById("deviceIdDisplay").textContent = vehicle ? (vehicle.device_id || "-") : "-";
             document.getElementById("decisionReasonDisplay").textContent = describeDecisionReason(space ? space.decision_reason : null);
 
-            const plateImageItem = document.getElementById("plateImageItem");
             const plateImage = document.getElementById("plateImageDisplay");
-            const plateImageUrl = imageUrlForVehicle(vehicle);
+            const plateImageItem = document.getElementById("plateImageItem");
+            const plateImageUrl = vehicle ? imageUrlForVehicle(vehicle) : null;
             if (plateImageUrl) {
                 plateImage.src = `${plateImageUrl}${plateImageUrl.includes("?") ? "&" : "?"}ts=${Date.now()}`;
-                plateImageItem.classList.remove("hidden");
+                plateImageItem.querySelector(".plate-image-placeholder").style.display = "none";
+                plateImage.style.display = "";
             } else {
                 plateImage.removeAttribute("src");
-                plateImageItem.classList.add("hidden");
+                plateImage.style.display = "none";
+                plateImageItem.querySelector(".plate-image-placeholder").style.display = "";
+            }
+            plateImageItem.classList.remove("hidden");
+
+            const headingDeg = vehicle && vehicle.heading_deg != null ? vehicle.heading_deg
+                : liveTelemetrySnapshot.heading_deg != null ? liveTelemetrySnapshot.heading_deg
+                : null;
+            const headingSource = vehicle && vehicle.heading_source
+                ? vehicle.heading_source
+                : liveTelemetrySnapshot.heading_source || null;
+            const headingRow = document.getElementById("modalHeadingItem");
+            if (headingDeg != null) {
+                const info = getHeadingInfo(headingDeg);
+                const srcLabel = headingSource === "compass" ? "Compass"
+                    : headingSource === "gps_course" ? "GPS Course" : "";
+                document.getElementById("modalHeadingDisplay").textContent =
+                    `${Math.round(headingDeg)}° ${info.cardinal}${info.side ? " — " + info.side : ""}${srcLabel ? " (" + srcLabel + ")" : ""}`;
+                headingRow.style.display = "";
+            } else {
+                headingRow.style.display = "none";
             }
 
             document.getElementById("vehicleModal").style.display = "block";

@@ -707,6 +707,7 @@ class BackendState:
 
                 if status == "OCCUPIED" and payload.get("plate_read"):
                     space["occupied"] = True
+                    last_orientation = self.devices.get(device_id, {}).get("last_orientation") or {}
                     space["vehicle_data"] = {
                         "license_plate": payload.get("plate_read"),
                         "time": source_detection_time,
@@ -719,10 +720,12 @@ class BackendState:
                         or (f"/api/uploads/{payload.get('image_id')}" if payload.get("image_id") else None),
                         "space_status": status,
                         "reason": reason,
+                        "heading_deg": last_orientation.get("heading_deg"),
+                        "heading_source": last_orientation.get("heading_source"),
                     }
                 else:
                     space["occupied"] = False
-                    space["vehicle_data"] = None
+                    # Preserve vehicle_data so the last detection remains visible
 
                 updated_spaces.append(space_id)
 
