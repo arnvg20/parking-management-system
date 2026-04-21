@@ -72,6 +72,7 @@ lot_space_association = LotSpaceAssociationService(
     config=LotSpaceAssociationConfig(
         outside_space_max_distance_m=settings.gps_assignment_max_distance_m,
         min_stable_confidence=settings.gps_min_stable_confidence,
+        drive_by_clear_radius_m=settings.gps_drive_by_clear_radius_m,
         bbox_filter_enabled=settings.bbox_filter_enabled,
         bbox_window_sec=settings.bbox_window_sec,
         bbox_top_k_per_window=settings.bbox_top_k_per_window,

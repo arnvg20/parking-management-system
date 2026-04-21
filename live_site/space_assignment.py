@@ -225,6 +225,7 @@ class _SpaceEvent:
     detection_id: str | None
     image_id: str | None
     image_url: str | None
+    drive_by: bool = False
 
 
 @dataclass(frozen=True)
@@ -245,6 +246,7 @@ class LotSpaceAssociationConfig:
     min_vote_share: float = 0.60
     min_stable_confidence: float = 0.40
     empty_confidence_floor: float = 0.90
+    drive_by_clear_radius_m: float = 15.0
     bbox_filter_enabled: bool = True
     bbox_window_sec: float = 2.0
     bbox_top_k_per_window: int = 1
@@ -779,6 +781,32 @@ class LotSpaceAssociationService:
             and event.plate_read
             and event.timestamp >= freshness_cutoff
         ]
+
+        # If robot drove past this space (drive_by=True) AFTER the last OCCUPIED event,
+        # it confirmed no car is there — clear immediately without waiting for the full window.
+        if occupied_events:
+            last_occupied_ts = max(e.timestamp for e in occupied_events)
+            drive_by_clear = any(
+                e.drive_by and e.status == "EMPTY" and e.timestamp > last_occupied_ts
+                for e in recent_events
+            )
+            if drive_by_clear:
+                decision = SpaceDecision(
+                    space_id=space_id,
+                    status="EMPTY",
+                    plate_read=None,
+                    confidence=self.config.empty_confidence_floor,
+                    source_detection_time=None,
+                    distance_to_space_m=None,
+                    reason="drive_by_confirmed_empty",
+                    location=None,
+                    detection_id=None,
+                    image_id=None,
+                    image_url=None,
+                )
+                self._latest_decisions[space_id] = decision
+                return decision
+
         uncertain_events = [
             event
             for event in recent_events
@@ -892,12 +920,32 @@ class LotSpaceAssociationService:
         self._latest_decisions[space_id] = decision
         return decision
 
+    def _robot_nearby_spaces(self, payload: dict[str, Any]) -> set[str]:
+        """Return space IDs within drive_by_clear_radius_m of the robot's current GPS."""
+        loc = payload.get("location") if isinstance(payload.get("location"), dict) else {}
+        robot_lat = coerce_float(loc.get("lat") or loc.get("latitude")) if loc else None
+        robot_lon = coerce_float(loc.get("lon") or loc.get("longitude")) if loc else None
+        if robot_lat is None:
+            robot_lat = coerce_float(payload.get("latitude"))
+        if robot_lon is None:
+            robot_lon = coerce_float(payload.get("longitude"))
+        if robot_lat is None or robot_lon is None:
+            return set()
+
+        radius = self.config.drive_by_clear_radius_m
+        return {
+            space_id
+            for space_id, space in self._spaces.items()
+            if haversine_distance_meters(robot_lat, robot_lon, space["center_lat"], space["center_lon"]) <= radius
+        }
+
     def ingest(self, device_id: str, payload: dict[str, Any]) -> LotResolutionResult:
         detections = self._extract_detections(payload, device_id)
         current_time = parse_timestamp(payload.get("timestamp")) or utcnow()
 
         with self._lock:
             self._prune_history(current_time)
+            nearby_spaces = self._robot_nearby_spaces(payload)
             eligible_detections, bbox_decisions, prefilter_results = self._apply_bbox_prefilter(detections)
             assignments, matched_results = self._resolve_assignments(eligible_detections, bbox_decisions)
             matched_results_by_id = {result.detection_id: result for result in matched_results}
@@ -957,6 +1005,7 @@ class LotSpaceAssociationService:
                         ),
                     )
                 else:
+                    is_drive_by = space_id in nearby_spaces
                     self._record_event(
                         space_id,
                         _SpaceEvent(
@@ -966,11 +1015,12 @@ class LotSpaceAssociationService:
                             timestamp=current_time,
                             source_detection_time=payload.get("timestamp"),
                             distance_to_space_m=None,
-                            reason="no_valid_detection",
+                            reason="drive_by_no_detection" if is_drive_by else "no_valid_detection",
                             location=None,
                             detection_id=None,
                             image_id=None,
                             image_url=None,
+                            drive_by=is_drive_by,
                         ),
                     )
 
