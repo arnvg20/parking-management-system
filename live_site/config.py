@@ -44,6 +44,8 @@ class Settings:
     bbox_min_absolute_height_px: float
     bbox_use_area_tiebreak: bool
     gps_assignment_max_distance_m: float
+    gps_min_stable_confidence: float
+    gps_calibration_enabled: bool
     static_dir: Path
     runtime_dir: Path
 
@@ -68,6 +70,8 @@ class Settings:
             bbox_min_absolute_height_px=float(os.getenv("BBOX_MIN_ABSOLUTE_HEIGHT_PX", "0")),
             bbox_use_area_tiebreak=_env_flag("BBOX_USE_AREA_TIEBREAK", True),
             gps_assignment_max_distance_m=float(os.getenv("GPS_ASSIGNMENT_MAX_DISTANCE_M", "8.0")),
+            gps_min_stable_confidence=float(os.getenv("GPS_MIN_STABLE_CONFIDENCE", "0.40")),
+            gps_calibration_enabled=_env_flag("GPS_CALIBRATION_ENABLED", False),
             static_dir=Path(__file__).resolve().parent / "static",
             runtime_dir=BASE_DIR / "runtime_data",
         )

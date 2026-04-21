@@ -7,9 +7,12 @@ import uuid
 from collections import defaultdict, deque
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .schemas import JetsonTelemetryEnvelope
+
+if TYPE_CHECKING:
+    from .gps_calibration import SegmentMapper
 
 
 logger = logging.getLogger(__name__)
@@ -230,7 +233,7 @@ class LotSpaceAssociationConfig:
     history_window_seconds: int = 45
     min_confirmations_for_occupied: int = 2
     min_vote_share: float = 0.60
-    min_stable_confidence: float = 0.72
+    min_stable_confidence: float = 0.40
     empty_confidence_floor: float = 0.90
     bbox_filter_enabled: bool = True
     bbox_window_sec: float = 2.0
@@ -241,8 +244,14 @@ class LotSpaceAssociationConfig:
 
 
 class LotSpaceAssociationService:
-    def __init__(self, parking_spaces: dict[str, dict[str, Any]], config: LotSpaceAssociationConfig | None = None) -> None:
+    def __init__(
+        self,
+        parking_spaces: dict[str, dict[str, Any]],
+        config: LotSpaceAssociationConfig | None = None,
+        gps_mapper: "SegmentMapper | None" = None,
+    ) -> None:
         self.config = config or LotSpaceAssociationConfig()
+        self._gps_mapper = gps_mapper
         self._lock = threading.RLock()
         self._spaces = self._build_space_index(parking_spaces)
         self._history: dict[str, deque[_SpaceEvent]] = {
@@ -349,6 +358,10 @@ class LotSpaceAssociationService:
 
     def _normalize_detection(self, detection_payload: dict[str, Any], fallback_timestamp: str) -> IncomingPlateDetection | None:
         latitude, longitude = self._extract_location(detection_payload)
+        if latitude is not None and longitude is not None and self._gps_mapper is not None:
+            mapped = self._gps_mapper.map_point(latitude, longitude)
+            if mapped is not None:
+                latitude, longitude = mapped
         bbox_xyxy, bbox_width_px, bbox_height_px, bbox_area_px = self._extract_bbox_metrics(detection_payload)
         image_id = detection_payload.get("image_id") or detection_payload.get("upload_id")
         image_url = detection_payload.get("image_url")
@@ -887,6 +900,8 @@ class LotSpaceAssociationService:
             for result in matched_results:
                 if result.status != "UNCERTAIN" or not result.candidates:
                     continue
+                if result.reason == "competing_detection_for_nearby_spaces":
+                    continue
                 for candidate in result.candidates[:2]:
                     affected_uncertain_spaces.add(candidate["space_id"])
 
@@ -894,13 +909,14 @@ class LotSpaceAssociationService:
                 assignment = assignments.get(space_id)
                 if assignment is not None:
                     detection, candidate = assignment
+                    effective_confidence = detection.confidence_level if detection.confidence_level > 0 else candidate.score
                     self._record_event(
                         space_id,
                         _SpaceEvent(
                             status="OCCUPIED",
                             plate_read=detection.plate_read,
-                            confidence=min(1.0, max(0.0, (detection.confidence_level * 0.7) + (candidate.score * 0.3))),
-                            timestamp=parse_timestamp(detection.timestamp) or current_time,
+                            confidence=min(1.0, max(0.0, (effective_confidence * 0.7) + (candidate.score * 0.3))),
+                            timestamp=current_time,
                             source_detection_time=detection.timestamp,
                             distance_to_space_m=candidate.distance_to_space_m,
                             reason=None,
