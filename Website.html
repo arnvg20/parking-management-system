@@ -998,6 +998,20 @@
             padding: 12px 14px 14px;
         }
 
+        .plate-image-preview {
+            overflow: hidden;
+        }
+
+        .plate-image-preview img {
+            display: block;
+            width: 100%;
+            max-height: 260px;
+            object-fit: contain;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background: var(--surface-muted);
+        }
+
         .placeholder-panel {
             text-align: center;
             padding: 32px 20px;
@@ -1474,6 +1488,13 @@
                 <div class="modal-item">
                     <div class="modal-label">Plate Number</div>
                     <div class="modal-value" id="licensePlateDisplay">-</div>
+                </div>
+
+                <div class="modal-item hidden" id="plateImageItem">
+                    <div class="modal-label">Plate Image</div>
+                    <div class="plate-image-preview">
+                        <img id="plateImageDisplay" src="" alt="Detected license plate image">
+                    </div>
                 </div>
 
                 <div class="modal-item">
@@ -2290,6 +2311,19 @@
             document.getElementById("powerMessage").textContent = messageText;
         }
 
+        function imageUrlForVehicle(vehicle) {
+            if (!vehicle) {
+                return null;
+            }
+            if (vehicle.image_url) {
+                return vehicle.image_url;
+            }
+            if (vehicle.image_id) {
+                return `/api/uploads/${encodeURIComponent(vehicle.image_id)}`;
+            }
+            return null;
+        }
+
         function renderTelemetryJson(device) {
             const deviceTelemetry = device ? (device.last_telemetry || {}) : {};
             const liveTelemetryKeys = [
@@ -2889,11 +2923,24 @@
             document.getElementById("decisionConfidenceDisplay").textContent = formatConfidence(space && typeof space.decision_confidence === "number" ? space.decision_confidence : vehicle.confidence);
             document.getElementById("deviceIdDisplay").textContent = vehicle.device_id || "-";
             document.getElementById("decisionReasonDisplay").textContent = describeDecisionReason(space ? space.decision_reason : null);
+
+            const plateImageItem = document.getElementById("plateImageItem");
+            const plateImage = document.getElementById("plateImageDisplay");
+            const plateImageUrl = imageUrlForVehicle(vehicle);
+            if (plateImageUrl) {
+                plateImage.src = `${plateImageUrl}${plateImageUrl.includes("?") ? "&" : "?"}ts=${Date.now()}`;
+                plateImageItem.classList.remove("hidden");
+            } else {
+                plateImage.removeAttribute("src");
+                plateImageItem.classList.add("hidden");
+            }
+
             document.getElementById("vehicleModal").style.display = "block";
         }
 
         function closeModal() {
             document.getElementById("vehicleModal").style.display = "none";
+            document.getElementById("plateImageDisplay").removeAttribute("src");
         }
 
         function updateFullscreenButtonLabel() {

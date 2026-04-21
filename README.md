@@ -65,6 +65,7 @@ http://YOUR_EC2_PUBLIC_IP_OR_DOMAIN:5000
 - `BBOX_MIN_RELATIVE_HEIGHT_RATIO`: second-stage guard for smaller detections relative to the largest bbox in the same window. Default is `0.65`.
 - `BBOX_MIN_ABSOLUTE_HEIGHT_PX`: optional floor for bbox height. Default is `0`.
 - `BBOX_USE_AREA_TIEBREAK`: uses bbox area after height when ranking same-window detections.
+- `GPS_ASSIGNMENT_MAX_DISTANCE_M`: maximum server-side distance from the robot/detection GPS point to a parking-space center before rejecting the detection. Default is `8.0`.
 
 ## MediaMTX setup
 

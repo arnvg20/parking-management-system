@@ -105,5 +105,39 @@ class PowerTelemetryTests(unittest.TestCase):
         asyncio.run(scenario())
 
 
+class BackendStateImageTests(unittest.TestCase):
+    def test_space_decision_image_id_is_added_to_vehicle_data(self) -> None:
+        from backend_state import BackendState
+
+        parking_spaces = {
+            "A1": {
+                "latitude": 43.0,
+                "longitude": -79.0,
+                "occupied": False,
+                "vehicle_data": None,
+            }
+        }
+        state = BackendState(parking_spaces, lambda *_args, **_kwargs: "A1", runtime_dir="/tmp/parking-power-test")
+        state.apply_space_decisions(
+            "jetson-01",
+            [
+                {
+                    "space_id": "A1",
+                    "status": "OCCUPIED",
+                    "plate_read": "ABC1234",
+                    "confidence": 0.91,
+                    "source_detection_time": "2026-04-21T15:20:00Z",
+                    "location": {"lat": 43.0, "lon": -79.0},
+                    "image_id": "plate-image-123",
+                }
+            ],
+            telemetry={},
+        )
+
+        vehicle_data = state.parking_spaces["A1"]["vehicle_data"]
+        self.assertEqual(vehicle_data["image_id"], "plate-image-123")
+        self.assertEqual(vehicle_data["image_url"], "/api/uploads/plate-image-123")
+
+
 if __name__ == "__main__":
     unittest.main()

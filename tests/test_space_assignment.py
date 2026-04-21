@@ -108,6 +108,50 @@ class LotSpaceAssociationServiceTests(unittest.TestCase):
         self.assertEqual(result.detection_results[0].status, "REJECTED")
         self.assertTrue(all(decision.status == "EMPTY" for decision in result.space_decisions))
 
+    def test_robot_gps_can_match_nearest_space_inside_expanded_radius(self) -> None:
+        config = LotSpaceAssociationConfig(
+            outside_space_max_distance_m=18.0,
+            ambiguous_score_margin=0.01,
+            ambiguous_distance_margin_m=0.1,
+            empty_after_seconds=TEST_CONFIG.empty_after_seconds,
+            history_window_seconds=TEST_CONFIG.history_window_seconds,
+            min_confirmations_for_occupied=TEST_CONFIG.min_confirmations_for_occupied,
+            min_vote_share=TEST_CONFIG.min_vote_share,
+            min_stable_confidence=TEST_CONFIG.min_stable_confidence,
+            empty_confidence_floor=TEST_CONFIG.empty_confidence_floor,
+        )
+        service = LotSpaceAssociationService(copy.deepcopy(TEST_SPACES), config=config)
+        payload = load_fixture()
+        payload["timestamp"] = "2026-04-16T15:47:10Z"
+        payload["plate_detections"][0]["time"] = "2026-04-16T15:47:10Z"
+        payload["plate_detections"][0]["location"] = {
+            "lat": 43.000150,
+            "lon": -79.000120,
+        }
+
+        result = service.ingest("jetson-01", payload)
+
+        self.assertEqual(result.detection_results[0].status, "ASSIGNED")
+        self.assertEqual(result.detection_results[0].assigned_space_id, "A1")
+
+    def test_confirmed_space_decision_carries_detection_image_id(self) -> None:
+        first_payload = load_fixture()
+        second_payload = load_fixture()
+        first_payload["timestamp"] = "2026-04-16T15:48:10Z"
+        first_payload["plate_detections"][0]["time"] = "2026-04-16T15:48:10Z"
+        first_payload["plate_detections"][0]["image_id"] = "plate-upload-1"
+        second_payload["timestamp"] = "2026-04-16T15:48:14Z"
+        second_payload["plate_detections"][0]["time"] = "2026-04-16T15:48:14Z"
+        second_payload["plate_detections"][0]["image_id"] = "plate-upload-2"
+
+        self.service.ingest("jetson-01", first_payload)
+        result = self.service.ingest("jetson-01", second_payload)
+        decision = decision_by_space(result, "A1")
+
+        self.assertEqual(decision.status, "OCCUPIED")
+        self.assertEqual(decision.image_id, "plate-upload-2")
+        self.assertEqual(decision.to_dict()["image_id"], "plate-upload-2")
+
     def test_empty_detection_feed_expires_previous_occupied_state(self) -> None:
         warm_one = load_fixture()
         warm_two = load_fixture()

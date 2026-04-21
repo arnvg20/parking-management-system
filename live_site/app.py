@@ -61,6 +61,7 @@ state = BackendState(
 lot_space_association = LotSpaceAssociationService(
     parking_spaces,
     config=LotSpaceAssociationConfig(
+        outside_space_max_distance_m=settings.gps_assignment_max_distance_m,
         bbox_filter_enabled=settings.bbox_filter_enabled,
         bbox_window_sec=settings.bbox_window_sec,
         bbox_top_k_per_window=settings.bbox_top_k_per_window,

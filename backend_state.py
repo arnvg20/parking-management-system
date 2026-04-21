@@ -667,6 +667,9 @@ class BackendState:
                         "longitude": location.get("lon"),
                         "confidence": confidence,
                         "device_id": device_id,
+                        "image_id": payload.get("image_id"),
+                        "image_url": payload.get("image_url")
+                        or (f"/api/uploads/{payload.get('image_id')}" if payload.get("image_id") else None),
                         "space_status": status,
                         "reason": reason,
                     }

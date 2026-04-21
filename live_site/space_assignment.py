@@ -89,6 +89,8 @@ class IncomingPlateDetection:
     bbox_width_px: float | None = None
     bbox_height_px: float | None = None
     bbox_area_px: float | None = None
+    image_id: str | None = None
+    image_url: str | None = None
     raw_payload: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -120,6 +122,8 @@ class SpaceDecision:
     reason: str | None
     location: dict[str, float] | None = None
     detection_id: str | None = None
+    image_id: str | None = None
+    image_url: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -132,6 +136,8 @@ class SpaceDecision:
             "reason": self.reason,
             "location": self.location,
             "detection_id": self.detection_id,
+            "image_id": self.image_id,
+            "image_url": self.image_url,
         }
 
 
@@ -151,6 +157,8 @@ class DetectionAssociationResult:
     bbox_filter_reason: str | None = None
     bbox_filter_rank: int | None = None
     bbox_window_key: str | None = None
+    image_id: str | None = None
+    image_url: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -168,6 +176,8 @@ class DetectionAssociationResult:
             "bbox_filter_reason": self.bbox_filter_reason,
             "bbox_filter_rank": self.bbox_filter_rank,
             "bbox_window_key": self.bbox_window_key,
+            "image_id": self.image_id,
+            "image_url": self.image_url,
         }
 
 
@@ -200,6 +210,8 @@ class _SpaceEvent:
     reason: str | None
     location: dict[str, float] | None
     detection_id: str | None
+    image_id: str | None
+    image_url: str | None
 
 
 @dataclass(frozen=True)
@@ -247,6 +259,8 @@ class LotSpaceAssociationService:
                 reason="no_valid_detection",
                 location=None,
                 detection_id=None,
+                image_id=None,
+                image_url=None,
             )
             for space_id in self._spaces
         }
@@ -336,6 +350,8 @@ class LotSpaceAssociationService:
     def _normalize_detection(self, detection_payload: dict[str, Any], fallback_timestamp: str) -> IncomingPlateDetection | None:
         latitude, longitude = self._extract_location(detection_payload)
         bbox_xyxy, bbox_width_px, bbox_height_px, bbox_area_px = self._extract_bbox_metrics(detection_payload)
+        image_id = detection_payload.get("image_id") or detection_payload.get("upload_id")
+        image_url = detection_payload.get("image_url")
         timestamp = (
             detection_payload.get("time")
             or detection_payload.get("timestamp")
@@ -369,6 +385,8 @@ class LotSpaceAssociationService:
             bbox_width_px=bbox_width_px,
             bbox_height_px=bbox_height_px,
             bbox_area_px=bbox_area_px,
+            image_id=str(image_id) if image_id else None,
+            image_url=str(image_url) if image_url else None,
             raw_payload=dict(detection_payload),
         )
 
@@ -409,6 +427,8 @@ class LotSpaceAssociationService:
             bbox_filter_reason=bbox_decision.reason,
             bbox_filter_rank=bbox_decision.rank,
             bbox_window_key=bbox_decision.window_key,
+            image_id=detection.image_id,
+            image_url=detection.image_url,
         )
 
     def _bbox_window_key(self, detection: IncomingPlateDetection) -> str | None:
@@ -774,6 +794,8 @@ class LotSpaceAssociationService:
                     reason=None,
                     location=winner_event.location,
                     detection_id=winner_event.detection_id,
+                    image_id=winner_event.image_id,
+                    image_url=winner_event.image_url,
                 )
                 self._latest_decisions[space_id] = decision
                 return decision
@@ -788,6 +810,8 @@ class LotSpaceAssociationService:
                 reason="insufficient_temporal_consensus",
                 location=winner_event.location,
                 detection_id=winner_event.detection_id,
+                image_id=winner_event.image_id,
+                image_url=winner_event.image_url,
             )
             self._latest_decisions[space_id] = decision
             return decision
@@ -804,6 +828,8 @@ class LotSpaceAssociationService:
                 reason=latest_uncertain.reason or "ambiguous_location",
                 location=latest_uncertain.location,
                 detection_id=latest_uncertain.detection_id,
+                image_id=latest_uncertain.image_id,
+                image_url=latest_uncertain.image_url,
             )
             self._latest_decisions[space_id] = decision
             return decision
@@ -820,6 +846,8 @@ class LotSpaceAssociationService:
                 reason=latest_empty.reason or "no_valid_detection",
                 location=None,
                 detection_id=None,
+                image_id=None,
+                image_url=None,
             )
             self._latest_decisions[space_id] = decision
             return decision
@@ -834,6 +862,8 @@ class LotSpaceAssociationService:
             reason="no_recent_valid_detection",
             location=None,
             detection_id=None,
+            image_id=None,
+            image_url=None,
         )
         self._latest_decisions[space_id] = decision
         return decision
@@ -876,6 +906,8 @@ class LotSpaceAssociationService:
                             reason=None,
                             location={"lat": detection.latitude, "lon": detection.longitude},
                             detection_id=detection.detection_id,
+                            image_id=detection.image_id,
+                            image_url=detection.image_url,
                         ),
                     )
                     continue
@@ -893,6 +925,8 @@ class LotSpaceAssociationService:
                             reason="ambiguous_location",
                             location=None,
                             detection_id=None,
+                            image_id=None,
+                            image_url=None,
                         ),
                     )
                 else:
@@ -908,6 +942,8 @@ class LotSpaceAssociationService:
                             reason="no_valid_detection",
                             location=None,
                             detection_id=None,
+                            image_id=None,
+                            image_url=None,
                         ),
                     )
 
