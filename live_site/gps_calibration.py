@@ -134,3 +134,25 @@ class SegmentMapper:
 
 
 default_mapper = SegmentMapper(GPS_ROUTE, REF_ROUTE)
+
+
+class ConstantOffsetMapper:
+    """Corrects raw GPS by adding a fixed lat/lon offset.
+
+    The offset is (true_position - robot_gps_reading) measured at any
+    known reference spot: stand the robot at a parking stall corner whose
+    Google Earth coordinates you have, read the GPS, then:
+
+        offset_lat = google_earth_lat - robot_gps_lat
+        offset_lon = google_earth_lon - robot_gps_lon
+
+    Take 3-4 readings at different spots and average them.
+    Set GPS_OFFSET_LAT and GPS_OFFSET_LON in .env to activate.
+    """
+
+    def __init__(self, offset_lat: float, offset_lon: float) -> None:
+        self.offset_lat = offset_lat
+        self.offset_lon = offset_lon
+
+    def map_point(self, lat: float, lon: float) -> Optional[tuple[float, float]]:
+        return (lat + self.offset_lat, lon + self.offset_lon)

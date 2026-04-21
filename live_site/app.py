@@ -40,7 +40,7 @@ from .mediamtx import (
     rewrite_location_header,
 )
 from .schemas import PowerTelemetryPayload, TelemetryUpdate
-from .gps_calibration import default_mapper as _default_gps_mapper
+from .gps_calibration import ConstantOffsetMapper, default_mapper as _default_gps_mapper
 from .space_assignment import LotSpaceAssociationConfig, LotSpaceAssociationService
 from .telemetry import DemoTelemetryPublisher, TelemetryHub
 
@@ -59,9 +59,15 @@ state = BackendState(
     runtime_dir=settings.runtime_dir,
     default_device_id=settings.default_device_id,
 )
+_gps_mapper = None
+if settings.gps_calibration_enabled:
+    _gps_mapper = _default_gps_mapper
+elif settings.gps_offset_lat != 0.0 or settings.gps_offset_lon != 0.0:
+    _gps_mapper = ConstantOffsetMapper(settings.gps_offset_lat, settings.gps_offset_lon)
+
 lot_space_association = LotSpaceAssociationService(
     parking_spaces,
-    gps_mapper=_default_gps_mapper if settings.gps_calibration_enabled else None,
+    gps_mapper=_gps_mapper,
     config=LotSpaceAssociationConfig(
         outside_space_max_distance_m=settings.gps_assignment_max_distance_m,
         min_stable_confidence=settings.gps_min_stable_confidence,

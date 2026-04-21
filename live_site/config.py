@@ -46,6 +46,8 @@ class Settings:
     gps_assignment_max_distance_m: float
     gps_min_stable_confidence: float
     gps_calibration_enabled: bool
+    gps_offset_lat: float
+    gps_offset_lon: float
     static_dir: Path
     runtime_dir: Path
 
@@ -72,6 +74,8 @@ class Settings:
             gps_assignment_max_distance_m=float(os.getenv("GPS_ASSIGNMENT_MAX_DISTANCE_M", "8.0")),
             gps_min_stable_confidence=float(os.getenv("GPS_MIN_STABLE_CONFIDENCE", "0.40")),
             gps_calibration_enabled=_env_flag("GPS_CALIBRATION_ENABLED", False),
+            gps_offset_lat=float(os.getenv("GPS_OFFSET_LAT", "0.0")),
+            gps_offset_lon=float(os.getenv("GPS_OFFSET_LON", "0.0")),
             static_dir=Path(__file__).resolve().parent / "static",
             runtime_dir=BASE_DIR / "runtime_data",
         )
