@@ -22,7 +22,7 @@ SECTION_LAYOUTS = {
         },
     },
     'C': {
-        'name': 'Section 3',
+        'name': 'Section C',
         'spaces': 10,
         'corners': {
             'top_left': (43.77090278, -79.50561944),
@@ -32,7 +32,7 @@ SECTION_LAYOUTS = {
         },
     },
     'D': {
-        'name': 'Section 4',
+        'name': 'Section D',
         'spaces': 10,
         'corners': {
             'top_left': (43.77084167, -79.50543889),
@@ -249,8 +249,4 @@ def load_sample_vehicles():
                 'longitude': vehicle['longitude'],
             }
             count += 1
-            print(f"✓ Vehicle {vehicle['license_plate']} matched to space {matching_space}")
-        else:
-            print(f"✗ Vehicle {vehicle['license_plate']} - No matching space found")
 
-    print(f"\n✓ Total vehicles loaded: {count}/{len(SAMPLE_VEHICLES)}")
