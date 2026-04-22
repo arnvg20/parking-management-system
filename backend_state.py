@@ -9,6 +9,8 @@ from pathlib import Path
 
 from werkzeug.utils import secure_filename
 
+from db import ParkingDB
+
 
 def utcnow_iso():
     return datetime.now(timezone.utc).isoformat()
@@ -63,6 +65,7 @@ class BackendState:
         self.frames_dir = self.runtime_dir / "frames"
         self.observations_dir = self.runtime_dir / "observations"
         self.state_file = self.runtime_dir / "state.json"
+        self._db = ParkingDB(self.runtime_dir / "parking.db")
 
         self._ensure_runtime_dirs()
         self._load_state()
@@ -84,15 +87,16 @@ class BackendState:
             values.setdefault("last_resolved_at", None)
 
     def _load_state(self):
-        if not self.state_file.exists():
-            return
+        # Migrate from state.json if the DB is empty and the JSON file exists.
+        if self._db.is_empty() and self.state_file.exists():
+            try:
+                snapshot = json.loads(self.state_file.read_text(encoding="utf-8"))
+                self._db.bulk_load_from_snapshot(snapshot)
+            except (OSError, json.JSONDecodeError):
+                pass
 
-        try:
-            persisted = json.loads(self.state_file.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return
-
-        persisted_spaces = persisted.get("parking_spaces", {})
+        # Load spaces from DB.
+        persisted_spaces = self._db.load_spaces()
         for space_id, values in persisted_spaces.items():
             if space_id not in self.parking_spaces:
                 continue
@@ -106,11 +110,12 @@ class BackendState:
             self.parking_spaces[space_id]["source_detection_time"] = values.get("source_detection_time")
             self.parking_spaces[space_id]["last_resolved_at"] = values.get("last_resolved_at")
 
-        self.devices = persisted.get("devices", {})
-        self.commands = persisted.get("commands", [])
-        self.uploads = persisted.get("uploads", {})
-        self.observations = persisted.get("observations", {})
-        self.command_sequence = persisted.get("command_sequence", 1)
+        self.devices = self._db.load_devices()
+        self.commands = self._db.load_commands()
+        self.uploads = self._db.load_uploads()
+        self.observations = self._db.load_observations()
+        seq = self._db.get_meta("command_sequence")
+        self.command_sequence = int(seq) if seq else 1
 
         for device in self.devices.values():
             frame_path = device.get("latest_frame_path")
@@ -149,38 +154,15 @@ class BackendState:
                 device["latest_frame_bytes"] = None
                 device["latest_frame_path"] = None
 
-    def _serializable_state(self):
-        devices = {}
-        for device_id, device in self.devices.items():
-            device_copy = copy.deepcopy(device)
-            device_copy.pop("latest_frame_bytes", None)
-            for source in device_copy.get("latest_stream_by_source", {}).values():
-                source.pop("_frame_bytes", None)
-            devices[device_id] = device_copy
+    def _db_save_space_locked(self, space_id: str) -> None:
+        self._db.upsert_space(space_id, self.parking_spaces[space_id])
 
-        return {
-            "parking_spaces": {
-                space_id: {
-                    "occupied": values["occupied"],
-                    "vehicle_data": values["vehicle_data"],
-                    "status": values.get("status"),
-                    "decision_confidence": values.get("decision_confidence"),
-                    "decision_reason": values.get("decision_reason"),
-                    "source_detection_time": values.get("source_detection_time"),
-                    "last_resolved_at": values.get("last_resolved_at"),
-                }
-                for space_id, values in self.parking_spaces.items()
-            },
-            "devices": devices,
-            "commands": self.commands[-200:],
-            "uploads": self.uploads,
-            "observations": self.observations,
-            "command_sequence": self.command_sequence,
-        }
+    def _db_save_device_locked(self, device_id: str) -> None:
+        if device_id in self.devices:
+            self._db.upsert_device(device_id, self.devices[device_id])
 
-    def _persist_state_locked(self):
-        payload = self._serializable_state()
-        self.state_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    def _db_save_meta_locked(self) -> None:
+        self._db.set_meta("command_sequence", str(self.command_sequence))
 
     def _emit_event_locked(self, topic, payload):
         event = {
@@ -407,6 +389,7 @@ class BackendState:
             record = self.observations.pop(observation_id, None)
             if not record:
                 continue
+            self._db.delete_observation(observation_id)
             path = record.get("path")
             if path:
                 try:
@@ -457,7 +440,8 @@ class BackendState:
             self._prune_observations_locked(device)
             device["updated_at"] = utcnow_iso()
 
-            self._persist_state_locked()
+            self._db.insert_observation(record)
+            self._db_save_device_locked(device_id)
             self._emit_event_locked("observation.saved", {"device_id": device_id, "observation_id": observation_id})
             return self._observation_metadata_locked(observation_id)
 
@@ -505,10 +489,10 @@ class BackendState:
         with self.lock:
             if device_id not in self.devices:
                 self.devices[device_id] = self._device_template(device_id, name=name)
-                self._persist_state_locked()
+                self._db_save_device_locked(device_id)
             elif name:
                 self.devices[device_id]["name"] = name
-                self._persist_state_locked()
+                self._db_save_device_locked(device_id)
             return self._device_snapshot_locked(device_id)
 
     def _device_snapshot_locked(self, device_id):
@@ -632,7 +616,7 @@ class BackendState:
                 device["last_streams"] = streams
 
             snapshot = self._device_snapshot_locked(device_id)
-            self._persist_state_locked()
+            self._db_save_device_locked(device_id)
             self._emit_event_locked("device.updated", {"device_id": device_id})
             self.command_condition.notify_all()
             return snapshot
@@ -665,7 +649,9 @@ class BackendState:
                     applied_spaces.append(changed_space)
 
             snapshot = self._device_snapshot_locked(device_id)
-            self._persist_state_locked()
+            self._db_save_device_locked(device_id)
+            for sid in applied_spaces:
+                self._db_save_space_locked(sid)
             self._emit_event_locked("device.updated", {"device_id": device_id})
             if applied_spaces:
                 self._emit_event_locked("parking.updated", {"spaces": applied_spaces})
@@ -703,6 +689,7 @@ class BackendState:
                 space["decision_confidence"] = 0.9
                 space["decision_reason"] = "plate_reassigned_to_other_space"
                 space["last_resolved_at"] = utcnow_iso()
+                self._db_save_space_locked(space_id)
 
     def apply_space_decisions(self, device_id, space_decisions, telemetry=None):
         telemetry = telemetry or {}
@@ -779,7 +766,9 @@ class BackendState:
                     device["last_streams"] = streams
 
             snapshot = self._device_snapshot_locked(device_id)
-            self._persist_state_locked()
+            self._db_save_device_locked(device_id)
+            for sid in updated_spaces:
+                self._db_save_space_locked(sid)
             self._emit_event_locked("device.updated", {"device_id": device_id})
             if updated_spaces:
                 self._emit_event_locked("parking.updated", {"spaces": updated_spaces})
@@ -831,7 +820,7 @@ class BackendState:
             changed_space = self._apply_parking_update_locked(update)
             if not changed_space:
                 return None
-            self._persist_state_locked()
+            self._db_save_space_locked(changed_space)
             self._emit_event_locked("parking.updated", {"spaces": [changed_space]})
             return copy.deepcopy(self.parking_spaces[changed_space])
 
@@ -864,7 +853,7 @@ class BackendState:
                 current["source_detection_time"] = current["vehicle_data"]["time"]
                 current["last_resolved_at"] = utcnow_iso()
 
-            self._persist_state_locked()
+            self._db_save_space_locked(space_id)
             self._emit_event_locked("parking.updated", {"spaces": [space_id]})
             return copy.deepcopy(current)
 
@@ -888,7 +877,8 @@ class BackendState:
             }
             self.command_sequence += 1
             self.commands.append(command)
-            self._persist_state_locked()
+            self._db.insert_command(command)
+            self._db_save_meta_locked()
             self._emit_event_locked("command.updated", {"command_id": command["id"], "status": "queued"})
             self.command_condition.notify_all()
             return copy.deepcopy(command)
@@ -907,7 +897,7 @@ class BackendState:
                     if command["device_id"] == device_id and command["status"] == "queued":
                         command["status"] = "dispatched"
                         command["dispatched_at"] = utcnow_iso()
-                        self._persist_state_locked()
+                        self._db.update_command(command)
                         self._emit_event_locked(
                             "command.updated",
                             {"command_id": command["id"], "status": "dispatched"},
@@ -916,7 +906,6 @@ class BackendState:
 
                 remaining = deadline - time.time()
                 if remaining <= 0:
-                    self._persist_state_locked()
                     return None
 
                 self.command_condition.wait(timeout=min(1.0, remaining))
@@ -935,7 +924,8 @@ class BackendState:
                             "result": result or {},
                             "completed_at": command["completed_at"],
                         }
-                    self._persist_state_locked()
+                    self._db.update_command(command)
+                    self._db_save_device_locked(device_id)
                     self._emit_event_locked(
                         "command.updated",
                         {"command_id": command_id, "status": command["status"]},
@@ -976,7 +966,8 @@ class BackendState:
             device["recent_image_ids"] = device["recent_image_ids"][:10]
             device["updated_at"] = utcnow_iso()
 
-            self._persist_state_locked()
+            self._db.insert_upload(record)
+            self._db_save_device_locked(device_id)
             self._emit_event_locked("image.uploaded", {"device_id": device_id, "image_id": upload_id})
             return copy.deepcopy(record)
 
@@ -999,7 +990,7 @@ class BackendState:
             device["last_seen_at"] = utcnow_iso()
             device["updated_at"] = utcnow_iso()
 
-            self._persist_state_locked()
+            self._db_save_device_locked(device_id)
             self._emit_event_locked("frame.updated", {"device_id": device_id})
             self.frame_condition.notify_all()
 
@@ -1071,7 +1062,7 @@ class BackendState:
             device["last_seen_at"] = utcnow_iso()
             device["updated_at"] = utcnow_iso()
 
-            self._persist_state_locked()
+            self._db_save_device_locked(device_id)
             self._emit_event_locked("frame.updated", {"device_id": device_id, "source_id": source_id})
             self.frame_condition.notify_all()
 

@@ -19,13 +19,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _PLATE_PATTERN = re.compile(r'^[A-Z]{4}[0-9]{3}$')
+_MIN_PLATE_LENGTH = 4
+_CUSTOM_PLATE_THRESHOLD = 3  # consecutive non-standard reads before accepting any ≥4-char plate
 
 
-def _normalize_plate(raw: str | None) -> str | None:
-    if not raw:
-        return None
-    normalized = str(raw).upper().replace(' ', '').replace('-', '')
-    return normalized if _PLATE_PATTERN.match(normalized) else None
+def _strip_plate(raw: str) -> str:
+    return str(raw).upper().replace(' ', '').replace('-', '')
 
 
 def utcnow() -> datetime:
@@ -265,6 +264,8 @@ class LotSpaceAssociationService:
         self.config = config or LotSpaceAssociationConfig()
         self._gps_mapper = gps_mapper
         self._lock = threading.RLock()
+        self._streak_lock = threading.Lock()
+        self._non_standard_streak: dict[str, int] = defaultdict(int)
         self._spaces = self._build_space_index(parking_spaces)
         self._history: dict[str, deque[_SpaceEvent]] = {
             space_id: deque(maxlen=40) for space_id in self._spaces
@@ -368,6 +369,34 @@ class LotSpaceAssociationService:
         bbox_area_px = bbox_width_px * bbox_height_px
         return bbox_xyxy, bbox_width_px, bbox_height_px, bbox_area_px
 
+    def _normalize_plate_adaptive(self, raw: str | None, source_camera: str | None) -> str | None:
+        """Normalize a raw plate string with adaptive format acceptance.
+
+        Plates shorter than _MIN_PLATE_LENGTH are always rejected.
+        Standard Ontario format (AAAA999) is always accepted; on match the
+        non-standard streak for this camera resets to 0.
+        When a camera's streak reaches _CUSTOM_PLATE_THRESHOLD consecutive
+        non-standard reads, any plate with ≥_MIN_PLATE_LENGTH chars is accepted
+        as a "custom plate" and the streak continues counting.
+        """
+        if not raw:
+            return None
+        normalized = _strip_plate(raw)
+        if len(normalized) < _MIN_PLATE_LENGTH:
+            return None
+        camera_key = source_camera or "__default__"
+        if _PLATE_PATTERN.match(normalized):
+            with self._streak_lock:
+                self._non_standard_streak[camera_key] = 0
+            return normalized
+        # Non-standard plate — check streak.
+        with self._streak_lock:
+            streak = self._non_standard_streak[camera_key]
+            if streak >= _CUSTOM_PLATE_THRESHOLD:
+                return normalized
+            self._non_standard_streak[camera_key] = streak + 1
+        return None
+
     def _normalize_detection(self, detection_payload: dict[str, Any], fallback_timestamp: str) -> IncomingPlateDetection | None:
         latitude, longitude = self._extract_location(detection_payload)
         if latitude is not None and longitude is not None and self._gps_mapper is not None:
@@ -391,22 +420,23 @@ class LotSpaceAssociationService:
             or detection_payload.get("plate_text")
             or detection_payload.get("license_plate")
         )
+        source_camera_raw = (
+            str(detection_payload.get("source_camera") or detection_payload.get("camera_id")).strip()
+            if (detection_payload.get("source_camera") or detection_payload.get("camera_id")) is not None
+            else None
+        )
         return IncomingPlateDetection(
             detection_id=str(
                 detection_payload.get("detection_id")
                 or detection_payload.get("event_id")
                 or uuid.uuid4().hex[:10]
             ),
-            plate_read=_normalize_plate(raw_plate),
+            plate_read=self._normalize_plate_adaptive(raw_plate, source_camera_raw),
             timestamp=timestamp,
             latitude=latitude,
             longitude=longitude,
             confidence_level=float(detection_payload.get("confidence_level") or detection_payload.get("confidence") or 0.0),
-            source_camera=(
-                str(detection_payload.get("source_camera") or detection_payload.get("camera_id")).strip() or None
-                if (detection_payload.get("source_camera") or detection_payload.get("camera_id")) is not None
-                else None
-            ),
+            source_camera=source_camera_raw or None,
             bbox_xyxy=bbox_xyxy,
             bbox_width_px=bbox_width_px,
             bbox_height_px=bbox_height_px,
