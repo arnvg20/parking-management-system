@@ -32,6 +32,7 @@ from Tab1 import (
     parking_spaces,
 )
 
+from .admin import create_admin_router
 from .config import Settings
 from .mediamtx import (
     build_forward_headers,
@@ -105,6 +106,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.mount("/static", StaticFiles(directory=settings.static_dir), name="static")
+app.include_router(create_admin_router(state))
 
 
 def _telemetry_key_is_valid(header_value: str | None) -> bool:

@@ -1030,6 +1030,31 @@ class BackendState:
                 "updated_at": device.get("latest_frame_updated_at"),
             }
 
+    def list_uploads(self, limit=50):
+        with self.lock:
+            items = sorted(
+                self.uploads.values(),
+                key=lambda x: x.get("created_at", ""),
+                reverse=True,
+            )
+            return copy.deepcopy(items[:limit])
+
+    def get_db_stats(self):
+        with self.lock:
+            tables = ["parking_spaces", "devices", "commands", "uploads", "observations"]
+            counts = {}
+            for table in tables:
+                try:
+                    row = self._db._conn.execute(f"SELECT COUNT(*) AS n FROM {table}").fetchone()
+                    counts[table] = row["n"] if row else 0
+                except Exception:
+                    counts[table] = 0
+            try:
+                db_size = self._db._path.stat().st_size
+            except OSError:
+                db_size = 0
+            return {"row_counts": counts, "db_size_bytes": db_size}
+
     def get_upload(self, upload_id):
         with self.lock:
             record = self.uploads.get(upload_id)
