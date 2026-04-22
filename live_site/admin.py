@@ -396,7 +396,7 @@ async function loadStats() {
 }
 
 async function purgeAll() {
-  if (!confirm('Reset to clean slate?\n\nThis will:\n• Mark all 40 spaces as EMPTY\n• Delete ALL uploaded images from disk\n• Wipe observations and commands\n\nThis cannot be undone.')) return;
+  if (!confirm('Reset to clean slate?\\n\\nThis will:\\n• Mark all 40 spaces as EMPTY\\n• Delete ALL uploaded images from disk\\n• Wipe observations and commands\\n\\nThis cannot be undone.')) return;
   const r = await fetch('/admin/api/purge', {method:'POST'});
   const d = await r.json();
   if (r.ok) {
