@@ -326,6 +326,11 @@ class ParkingDB:
         ).fetchone()
         return row["n"] == 0
 
+    def purge_tables(self, tables: list[str]) -> None:
+        for table in tables:
+            self._conn.execute(f"DELETE FROM {table}")
+        self._conn.commit()
+
     def bulk_load_from_snapshot(self, snapshot: dict[str, Any]) -> None:
         """One-shot migration from a state.json snapshot dict."""
         for space_id, space in (snapshot.get("parking_spaces") or {}).items():

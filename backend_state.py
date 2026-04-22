@@ -1039,6 +1039,60 @@ class BackendState:
             )
             return copy.deepcopy(items[:limit])
 
+    def purge_all_data(self):
+        """Clear all transient data: spaces → EMPTY, delete image files,
+        wipe uploads / observations / commands, reset device image+observation state."""
+        with self.lock:
+            # Mark every space as EMPTY
+            for space_id, space in self.parking_spaces.items():
+                space["occupied"] = False
+                space["vehicle_data"] = None
+                space["status"] = "EMPTY"
+                space["decision_confidence"] = 0.9
+                space["decision_reason"] = "purged"
+                space["source_detection_time"] = None
+                space["last_resolved_at"] = utcnow_iso()
+                self._db_save_space_locked(space_id)
+
+            # Delete image files and clear uploads
+            for record in self.uploads.values():
+                path = record.get("path")
+                if path:
+                    try:
+                        Path(path).unlink(missing_ok=True)
+                    except OSError:
+                        pass
+            self.uploads.clear()
+
+            # Delete observation files and clear observations
+            for record in self.observations.values():
+                path = record.get("path")
+                if path:
+                    try:
+                        Path(path).unlink(missing_ok=True)
+                    except OSError:
+                        pass
+            self.observations.clear()
+
+            # Clear commands
+            self.commands.clear()
+
+            # Purge DB tables
+            self._db.purge_tables(["uploads", "observations", "commands"])
+
+            # Reset per-device image and observation references
+            for device_id, device in self.devices.items():
+                device["latest_image_id"] = None
+                device["latest_image_path"] = None
+                device["recent_image_ids"] = []
+                device["latest_observation_id"] = None
+                device["recent_observation_ids"] = []
+                device["last_command_result"] = None
+                self._db_save_device_locked(device_id)
+
+            self._emit_event_locked("parking.updated", {"spaces": list(self.parking_spaces.keys())})
+            return {"purged": True, "spaces_cleared": len(self.parking_spaces)}
+
     def get_db_stats(self):
         with self.lock:
             tables = ["parking_spaces", "devices", "commands", "uploads", "observations"]

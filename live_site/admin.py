@@ -390,22 +390,21 @@ async function loadStats() {
     </div>
     <div class="danger">
       <h3>&#x26A0; Danger Zone</h3>
-      <p>Mark every parking space as EMPTY and remove all vehicle data. This cannot be undone.</p>
-      <button class="btn btn-red" onclick="clearAllSpaces()">Clear All Spaces</button>
+      <p>Reset to a clean slate: marks every space as EMPTY, deletes all uploaded images, and wipes observations and commands. The 40 parking spaces are kept. This cannot be undone.</p>
+      <button class="btn btn-red" onclick="purgeAll()">&#x1F5D1; Reset to Clean Slate</button>
     </div>`;
 }
 
-async function clearAllSpaces() {
-  if (!confirm('Clear ALL parking spaces? This will mark every space as EMPTY.')) return;
-  const r = await fetch('/admin/api/spaces');
-  const spaces = await r.json();
-  let n = 0;
-  for (const s of spaces) {
-    const res = await fetch(`/admin/api/spaces/${s.space_id}/clear`, {method:'POST'});
-    if (res.ok) n++;
+async function purgeAll() {
+  if (!confirm('Reset to clean slate?\n\nThis will:\n• Mark all 40 spaces as EMPTY\n• Delete ALL uploaded images from disk\n• Wipe observations and commands\n\nThis cannot be undone.')) return;
+  const r = await fetch('/admin/api/purge', {method:'POST'});
+  const d = await r.json();
+  if (r.ok) {
+    flash(`Clean slate done — ${d.spaces_cleared} spaces cleared, all images and history deleted.`);
+    loadStats();
+  } else {
+    flash(d.error||'Purge failed', false);
   }
-  flash(`Cleared ${n} space${n!==1?'s':''}.`);
-  loadStats();
 }
 
 // init
@@ -545,5 +544,12 @@ def create_admin_router(state: Any) -> APIRouter:
             return _unauth()
         stats = await run_in_threadpool(state.get_db_stats)
         return JSONResponse(stats)
+
+    @router.post("/api/purge")
+    async def api_purge(request: Request):
+        if not _auth(request):
+            return _unauth()
+        result = await run_in_threadpool(state.purge_all_data)
+        return JSONResponse(result)
 
     return router
