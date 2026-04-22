@@ -674,6 +674,21 @@ class BackendState:
                 "updated_spaces": applied_spaces,
             }
 
+    def _latest_recent_image_id_locked(self, device_id, max_age_seconds=60):
+        device = self.devices.get(device_id, {})
+        image_id = device.get("latest_image_id")
+        if not image_id:
+            return None
+        record = self.uploads.get(image_id)
+        if not record:
+            return None
+        try:
+            uploaded_at = datetime.fromisoformat(record["created_at"])
+            age = (datetime.now(timezone.utc) - uploaded_at).total_seconds()
+            return image_id if age <= max_age_seconds else None
+        except (KeyError, ValueError, TypeError):
+            return None
+
     def _evict_plate_from_other_spaces_locked(self, plate, current_space_id):
         if not plate:
             return
@@ -724,6 +739,10 @@ class BackendState:
                     self._evict_plate_from_other_spaces_locked(plate, space_id)
                     space["occupied"] = True
                     last_orientation = self.devices.get(device_id, {}).get("last_orientation") or {}
+                    image_id = payload.get("image_id")
+                    image_url = payload.get("image_url")
+                    if not image_id and not image_url:
+                        image_id = self._latest_recent_image_id_locked(device_id, max_age_seconds=60)
                     space["vehicle_data"] = {
                         "license_plate": payload.get("plate_read"),
                         "time": source_detection_time,
@@ -731,9 +750,8 @@ class BackendState:
                         "longitude": location.get("lon"),
                         "confidence": confidence,
                         "device_id": device_id,
-                        "image_id": payload.get("image_id"),
-                        "image_url": payload.get("image_url")
-                        or (f"/api/uploads/{payload.get('image_id')}" if payload.get("image_id") else None),
+                        "image_id": image_id,
+                        "image_url": image_url or (f"/api/uploads/{image_id}" if image_id else None),
                         "space_status": status,
                         "reason": reason,
                         "heading_deg": last_orientation.get("heading_deg"),
