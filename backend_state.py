@@ -12,6 +12,10 @@ from werkzeug.utils import secure_filename
 from db import ParkingDB
 
 
+_OBSERVATION_PLATE_MIN_LENGTH = 4
+_OBSERVATION_PLATE_MAX_LENGTH = 8
+
+
 def utcnow_iso():
     return datetime.now(timezone.utc).isoformat()
 
@@ -39,6 +43,30 @@ def first_present(*values):
         if isinstance(value, str) and not value.strip():
             continue
         return value
+    return None
+
+
+def normalize_observation_plate(value):
+    if value is None:
+        return None
+
+    normalized = "".join(character for character in str(value).upper() if character.isalnum())
+    if not normalized:
+        return None
+    if len(normalized) < _OBSERVATION_PLATE_MIN_LENGTH or len(normalized) > _OBSERVATION_PLATE_MAX_LENGTH:
+        return None
+    if not any(character.isalpha() for character in normalized):
+        return None
+    if not any(character.isdigit() for character in normalized):
+        return None
+    return normalized
+
+
+def first_valid_observation_plate(*values):
+    for value in values:
+        normalized = normalize_observation_plate(value)
+        if normalized:
+            return normalized
     return None
 
 
@@ -156,6 +184,8 @@ class BackendState:
                 device["latest_frame_bytes"] = None
                 device["latest_frame_path"] = None
 
+        self._purge_invalid_observations()
+
     def _db_save_space_locked(self, space_id: str) -> None:
         self._db.upsert_space(space_id, self.parking_spaces[space_id])
 
@@ -250,6 +280,59 @@ class BackendState:
                 return [item for item in candidate if isinstance(item, dict)]
         return []
 
+    def _normalize_observation_summary_plate(self, summary):
+        if not isinstance(summary, dict):
+            return None
+        normalized = normalize_observation_plate(summary.get("plate_text"))
+        if not normalized:
+            return None
+        summary["plate_text"] = normalized
+        return normalized
+
+    def _observation_record_has_valid_plate(self, record):
+        if not isinstance(record, dict):
+            return False
+        return bool(self._normalize_observation_summary_plate(record.get("summary")))
+
+    def _purge_invalid_observations(self):
+        changed_devices = set()
+        for observation_id, record in list(self.observations.items()):
+            if self._observation_record_has_valid_plate(record):
+                continue
+
+            self.observations.pop(observation_id, None)
+            self._db.delete_observation(observation_id)
+
+            device_id = record.get("device_id")
+            if device_id:
+                changed_devices.add(device_id)
+
+            path = record.get("path")
+            if path:
+                try:
+                    Path(path).unlink(missing_ok=True)
+                except OSError:
+                    pass
+
+        for device_id, device in self.devices.items():
+            valid_ids = [
+                observation_id
+                for observation_id in device.get("recent_observation_ids", [])
+                if observation_id in self.observations
+            ]
+            if valid_ids != device.get("recent_observation_ids", []):
+                device["recent_observation_ids"] = valid_ids[: self.OBSERVATION_HISTORY_LIMIT]
+                changed_devices.add(device_id)
+
+            latest_observation_id = device.get("latest_observation_id")
+            if latest_observation_id not in self.observations:
+                device["latest_observation_id"] = device["recent_observation_ids"][0] if device["recent_observation_ids"] else None
+                changed_devices.add(device_id)
+
+        for device_id in changed_devices:
+            if device_id in self.devices:
+                self._db_save_device_locked(device_id)
+
     def _build_observation_summary(self, device_id, payload, created_at, source):
         payload = payload if isinstance(payload, dict) else {}
         telemetry = payload.get("telemetry") if isinstance(payload.get("telemetry"), dict) else payload
@@ -259,7 +342,20 @@ class BackendState:
         parking_updates = payload.get("parking_updates") or payload.get("events") or []
         parking_updates = [item for item in parking_updates if isinstance(item, dict)]
 
-        primary_detection = detections[0] if detections else {}
+        primary_detection = next(
+            (
+                item
+                for item in detections
+                if first_valid_observation_plate(
+                    item.get("plate_text"),
+                    item.get("plate_read"),
+                    item.get("text"),
+                    item.get("license_plate"),
+                    item.get("detected_plate"),
+                )
+            ),
+            detections[0] if detections else {},
+        )
         primary_location = primary_detection.get("location") if isinstance(primary_detection.get("location"), dict) else {}
         if not primary_location:
             primary_location = primary_detection.get("gps") if isinstance(primary_detection.get("gps"), dict) else {}
@@ -272,7 +368,9 @@ class BackendState:
             (
                 item
                 for item in resolution_items
-                if isinstance(item, dict) and item.get("status") == "OCCUPIED" and item.get("plate_read")
+                if isinstance(item, dict)
+                and item.get("status") == "OCCUPIED"
+                and normalize_observation_plate(item.get("plate_read"))
             ),
             None,
         )
@@ -286,11 +384,12 @@ class BackendState:
             else {}
         )
 
-        plate_text = first_present(
+        plate_text = first_valid_observation_plate(
             resolved_occupied.get("plate_read") if resolved_occupied else None,
             primary_detection.get("plate_text"),
             primary_detection.get("plate_read"),
             primary_detection.get("text"),
+            primary_detection.get("detected_plate"),
             primary_detection.get("license_plate"),
             telemetry.get("detected_plate"),
             telemetry.get("plate"),
@@ -412,12 +511,15 @@ class BackendState:
     def save_observation(self, device_id, payload, source="jetson.telemetry"):
         payload = copy.deepcopy(payload) if isinstance(payload, dict) else {"payload": payload}
         created_at = utcnow_iso()
+        summary = self._build_observation_summary(device_id, payload, created_at, source)
+        if not self._normalize_observation_summary_plate(summary):
+            return None
+
         observation_id = uuid.uuid4().hex
         file_name = self._observation_file_name(created_at, observation_id)
         device_dir = self.observations_dir / device_id
         device_dir.mkdir(parents=True, exist_ok=True)
         file_path = device_dir / file_name
-        summary = self._build_observation_summary(device_id, payload, created_at, source)
         document = {
             "id": observation_id,
             "device_id": device_id,
@@ -466,14 +568,18 @@ class BackendState:
             items = []
             for observation_id in device.get("recent_observation_ids", [])[:limit]:
                 metadata = self._observation_metadata_locked(observation_id)
-                if metadata:
+                if metadata and self._observation_record_has_valid_plate(metadata):
                     items.append(metadata)
             return items
 
     def get_observation(self, device_id, observation_id):
         with self.lock:
             metadata = self._observation_metadata_locked(observation_id)
-            if not metadata or metadata["device_id"] != device_id:
+            if (
+                not metadata
+                or metadata["device_id"] != device_id
+                or not self._observation_record_has_valid_plate(metadata)
+            ):
                 return None
 
             file_path = metadata.get("path")
@@ -541,10 +647,15 @@ class BackendState:
             for image_id in device.get("recent_image_ids", [])
             if image_id in self.uploads
         ]
-        device["observation_count"] = len(device.get("recent_observation_ids", []))
-        if device.get("latest_observation_id"):
+        valid_observation_ids = [
+            observation_id
+            for observation_id in device.get("recent_observation_ids", [])
+            if observation_id in self.observations and self._observation_record_has_valid_plate(self.observations[observation_id])
+        ]
+        device["observation_count"] = len(valid_observation_ids)
+        if valid_observation_ids:
             device["latest_observation_url"] = (
-                f"/api/devices/{device_id}/observations/{device['latest_observation_id']}"
+                f"/api/devices/{device_id}/observations/{valid_observation_ids[0]}"
             )
         else:
             device["latest_observation_url"] = None
