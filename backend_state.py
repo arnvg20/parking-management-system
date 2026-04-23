@@ -10,10 +10,7 @@ from pathlib import Path
 from werkzeug.utils import secure_filename
 
 from db import ParkingDB
-
-
-_OBSERVATION_PLATE_MIN_LENGTH = 4
-_OBSERVATION_PLATE_MAX_LENGTH = 8
+from plate_utils import normalize_plate_read, parse_timestamp
 
 
 def utcnow_iso():
@@ -47,19 +44,7 @@ def first_present(*values):
 
 
 def normalize_observation_plate(value):
-    if value is None:
-        return None
-
-    normalized = "".join(character for character in str(value).upper() if character.isalnum())
-    if not normalized:
-        return None
-    if len(normalized) < _OBSERVATION_PLATE_MIN_LENGTH or len(normalized) > _OBSERVATION_PLATE_MAX_LENGTH:
-        return None
-    if not any(character.isalpha() for character in normalized):
-        return None
-    if not any(character.isdigit() for character in normalized):
-        return None
-    return normalized
+    return normalize_plate_read(value)
 
 
 def first_valid_observation_plate(*values):
@@ -160,6 +145,9 @@ class BackendState:
             device.setdefault("last_command_result", None)
             device.setdefault("latest_observation_id", None)
             device.setdefault("recent_observation_ids", [])
+            device.setdefault("latest_observation_timestamp", None)
+            device.setdefault("latest_observation_signature", None)
+            device.setdefault("observation_floor_timestamp", None)
             device.setdefault("latest_stream_by_source", {})
             device.setdefault("last_orientation", None)
             device.setdefault("last_location", None)
@@ -185,6 +173,8 @@ class BackendState:
                 device["latest_frame_path"] = None
 
         self._purge_invalid_observations()
+        for device_id in self.devices:
+            self._refresh_device_observation_state_locked(device_id)
 
     def _db_save_space_locked(self, space_id: str) -> None:
         self._db.upsert_space(space_id, self.parking_spaces[space_id])
@@ -254,6 +244,9 @@ class BackendState:
             "last_command_result": None,
             "latest_observation_id": None,
             "recent_observation_ids": [],
+            "latest_observation_timestamp": None,
+            "latest_observation_signature": None,
+            "observation_floor_timestamp": None,
             "latest_stream_by_source": {},
             "last_orientation": None,
             "last_location": None,
@@ -288,6 +281,47 @@ class BackendState:
             return None
         summary["plate_text"] = normalized
         return normalized
+
+    def _observation_signature(self, summary):
+        normalized_timestamp = None
+        if isinstance(summary, dict):
+            parsed_timestamp = parse_timestamp(summary.get("timestamp"))
+            normalized_timestamp = parsed_timestamp.isoformat() if parsed_timestamp else str(summary.get("timestamp") or "")
+        return "|".join(
+            [
+                normalized_timestamp or "",
+                normalize_observation_plate((summary or {}).get("plate_text")) or "",
+                str((summary or {}).get("space_id") or ""),
+                str((summary or {}).get("space_status") or ""),
+            ]
+        )
+
+    def _refresh_device_observation_state_locked(self, device_id):
+        device = self.devices.get(device_id)
+        if not device:
+            return
+
+        latest_observation_id = device.get("latest_observation_id")
+        latest_record = self.observations.get(latest_observation_id) if latest_observation_id else None
+        if not latest_record:
+            device["latest_observation_timestamp"] = None
+            device["latest_observation_signature"] = None
+            return
+
+        summary = latest_record.get("summary") if isinstance(latest_record, dict) else {}
+        parsed_timestamp = parse_timestamp(summary.get("timestamp")) or parse_timestamp(latest_record.get("created_at"))
+        device["latest_observation_timestamp"] = parsed_timestamp.isoformat() if parsed_timestamp else None
+        device["latest_observation_signature"] = self._observation_signature(summary)
+
+    def _observation_sort_key(self, record):
+        if not isinstance(record, dict):
+            return (datetime.min.replace(tzinfo=timezone.utc), "")
+        summary = record.get("summary") if isinstance(record.get("summary"), dict) else {}
+        parsed_timestamp = parse_timestamp(summary.get("timestamp")) or parse_timestamp(record.get("created_at"))
+        return (
+            parsed_timestamp or datetime.min.replace(tzinfo=timezone.utc),
+            str(record.get("created_at") or ""),
+        )
 
     def _observation_record_has_valid_plate(self, record):
         if not isinstance(record, dict):
@@ -331,6 +365,7 @@ class BackendState:
 
         for device_id in changed_devices:
             if device_id in self.devices:
+                self._refresh_device_observation_state_locked(device_id)
                 self._db_save_device_locked(device_id)
 
     def _build_observation_summary(self, device_id, payload, created_at, source):
@@ -342,41 +377,64 @@ class BackendState:
         parking_updates = payload.get("parking_updates") or payload.get("events") or []
         parking_updates = [item for item in parking_updates if isinstance(item, dict)]
 
-        primary_detection = next(
-            (
-                item
-                for item in detections
-                if first_valid_observation_plate(
-                    item.get("plate_text"),
-                    item.get("plate_read"),
-                    item.get("text"),
-                    item.get("license_plate"),
-                    item.get("detected_plate"),
-                )
-            ),
-            detections[0] if detections else {},
+        def _item_time(item, *keys):
+            if not isinstance(item, dict):
+                return None
+            for key in keys:
+                parsed = parse_timestamp(item.get(key))
+                if parsed:
+                    return parsed
+            return None
+
+        valid_detections = [
+            item
+            for item in detections
+            if first_valid_observation_plate(
+                item.get("plate_text"),
+                item.get("plate_read"),
+                item.get("text"),
+                item.get("license_plate"),
+                item.get("detected_plate"),
+            )
+        ]
+        primary_detection = max(
+            valid_detections or detections or [{}],
+            key=lambda item: _item_time(item, "time", "timestamp", "detected_at") or datetime.min.replace(tzinfo=timezone.utc),
         )
         primary_location = primary_detection.get("location") if isinstance(primary_detection.get("location"), dict) else {}
         if not primary_location:
             primary_location = primary_detection.get("gps") if isinstance(primary_detection.get("gps"), dict) else {}
-        primary_update = parking_updates[0] if parking_updates else {}
+        primary_update = max(
+            parking_updates or [{}],
+            key=lambda item: _item_time(item, "captured_at", "timestamp") or datetime.min.replace(tzinfo=timezone.utc),
+        )
         lot_status = telemetry.get("lot_status") if isinstance(telemetry.get("lot_status"), dict) else {}
         plate_status = lot_status.get("plate") if isinstance(lot_status.get("plate"), dict) else {}
         gps_status = lot_status.get("gps") if isinstance(lot_status.get("gps"), dict) else {}
         power_status = telemetry.get("power") if isinstance(telemetry.get("power"), dict) else {}
-        resolved_occupied = next(
-            (
-                item
-                for item in resolution_items
-                if isinstance(item, dict)
-                and item.get("status") == "OCCUPIED"
-                and normalize_observation_plate(item.get("plate_read"))
-            ),
-            None,
+        occupied_resolution_items = [
+            item
+            for item in resolution_items
+            if isinstance(item, dict)
+            and item.get("status") == "OCCUPIED"
+            and normalize_observation_plate(item.get("plate_read"))
+        ]
+        resolved_occupied = (
+            max(
+                occupied_resolution_items,
+                key=lambda item: _item_time(item, "source_detection_time", "timestamp") or datetime.min.replace(tzinfo=timezone.utc),
+            )
+            if occupied_resolution_items
+            else None
         )
-        resolved_candidate = resolved_occupied or next(
-            (item for item in resolution_items if isinstance(item, dict) and item.get("status")),
-            None,
+        resolved_candidate_pool = [item for item in resolution_items if isinstance(item, dict) and item.get("status")]
+        resolved_candidate = resolved_occupied or (
+            max(
+                resolved_candidate_pool,
+                key=lambda item: _item_time(item, "source_detection_time", "timestamp") or datetime.min.replace(tzinfo=timezone.utc),
+            )
+            if resolved_candidate_pool
+            else None
         )
         resolved_location = (
             resolved_candidate.get("location")
@@ -471,7 +529,7 @@ class BackendState:
             "power_status": power_status.get("status"),
             "power_message": power_status.get("message"),
             "low_voltage_duration_sec": power_status.get("low_voltage_duration_sec"),
-            "detection_count": len(detections),
+            "detection_count": len(valid_detections),
             "parking_update_count": len(parking_updates),
         }
 
@@ -515,24 +573,45 @@ class BackendState:
         if not self._normalize_observation_summary_plate(summary):
             return None
 
-        observation_id = uuid.uuid4().hex
-        file_name = self._observation_file_name(created_at, observation_id)
-        device_dir = self.observations_dir / device_id
-        device_dir.mkdir(parents=True, exist_ok=True)
-        file_path = device_dir / file_name
-        document = {
-            "id": observation_id,
-            "device_id": device_id,
-            "source": source,
-            "created_at": created_at,
-            "summary": summary,
-            "payload": payload,
-        }
-        file_path.write_text(json.dumps(document, indent=2), encoding="utf-8")
+        observation_timestamp = parse_timestamp(summary.get("timestamp")) or parse_timestamp(created_at)
+        if observation_timestamp:
+            summary["timestamp"] = observation_timestamp.isoformat()
+        observation_signature = self._observation_signature(summary)
 
         with self.lock:
             if device_id not in self.devices:
                 self.devices[device_id] = self._device_template(device_id)
+            device = self.devices[device_id]
+
+            floor_timestamp = parse_timestamp(device.get("observation_floor_timestamp"))
+            if observation_timestamp and floor_timestamp and observation_timestamp <= floor_timestamp:
+                return None
+
+            latest_timestamp = parse_timestamp(device.get("latest_observation_timestamp"))
+            if observation_timestamp and latest_timestamp and observation_timestamp < latest_timestamp:
+                return None
+            if (
+                observation_timestamp
+                and latest_timestamp
+                and observation_timestamp == latest_timestamp
+                and observation_signature == device.get("latest_observation_signature")
+            ):
+                return self._observation_metadata_locked(device.get("latest_observation_id"))
+
+            observation_id = uuid.uuid4().hex
+            file_name = self._observation_file_name(created_at, observation_id)
+            device_dir = self.observations_dir / device_id
+            device_dir.mkdir(parents=True, exist_ok=True)
+            file_path = device_dir / file_name
+            document = {
+                "id": observation_id,
+                "device_id": device_id,
+                "source": source,
+                "created_at": created_at,
+                "summary": summary,
+                "payload": payload,
+            }
+            file_path.write_text(json.dumps(document, indent=2), encoding="utf-8")
 
             record = {
                 "id": observation_id,
@@ -544,13 +623,15 @@ class BackendState:
                 "summary": summary,
             }
             self.observations[observation_id] = record
-
-            device = self.devices[device_id]
             device["latest_observation_id"] = observation_id
             device["recent_observation_ids"] = [
                 observation_id,
                 *[value for value in device.get("recent_observation_ids", []) if value != observation_id],
             ]
+            device["latest_observation_timestamp"] = observation_timestamp.isoformat() if observation_timestamp else None
+            device["latest_observation_signature"] = observation_signature
+            if floor_timestamp and observation_timestamp and observation_timestamp > floor_timestamp:
+                device["observation_floor_timestamp"] = None
             self._prune_observations_locked(device)
             device["updated_at"] = utcnow_iso()
 
@@ -566,11 +647,12 @@ class BackendState:
                 return []
 
             items = []
-            for observation_id in device.get("recent_observation_ids", [])[:limit]:
+            for observation_id in device.get("recent_observation_ids", []):
                 metadata = self._observation_metadata_locked(observation_id)
                 if metadata and self._observation_record_has_valid_plate(metadata):
                     items.append(metadata)
-            return items
+            items.sort(key=self._observation_sort_key, reverse=True)
+            return items[:limit]
 
     def get_observation(self, device_id, observation_id):
         with self.lock:
@@ -783,21 +865,6 @@ class BackendState:
                 "updated_spaces": applied_spaces,
             }
 
-    def _latest_recent_image_id_locked(self, device_id, max_age_seconds=60):
-        device = self.devices.get(device_id, {})
-        image_id = device.get("latest_image_id")
-        if not image_id:
-            return None
-        record = self.uploads.get(image_id)
-        if not record:
-            return None
-        try:
-            uploaded_at = datetime.fromisoformat(record["created_at"])
-            age = (datetime.now(timezone.utc) - uploaded_at).total_seconds()
-            return image_id if age <= max_age_seconds else None
-        except (KeyError, ValueError, TypeError):
-            return None
-
     def _evict_plate_from_other_spaces_locked(self, plate, current_space_id):
         if not plate:
             return
@@ -836,9 +903,13 @@ class BackendState:
                 reason = payload.get("reason")
                 source_detection_time = payload.get("source_detection_time") or utcnow_iso()
                 location = payload.get("location") or {}
+                incoming_detection_time = parse_timestamp(source_detection_time)
 
                 space = self.parking_spaces[space_id]
                 currently_occupied = bool(space.get("occupied")) and bool((space.get("vehicle_data") or {}).get("license_plate"))
+                existing_detection_time = parse_timestamp(space.get("source_detection_time"))
+                if existing_detection_time and incoming_detection_time and incoming_detection_time <= existing_detection_time:
+                    continue
 
                 if status == "OCCUPIED" and payload.get("plate_read"):
                     plate = payload.get("plate_read")
@@ -852,8 +923,6 @@ class BackendState:
                     last_orientation = self.devices.get(device_id, {}).get("last_orientation") or {}
                     image_id = payload.get("image_id")
                     image_url = payload.get("image_url")
-                    if not image_id and not image_url:
-                        image_id = self._latest_recent_image_id_locked(device_id, max_age_seconds=60)
                     space["vehicle_data"] = {
                         "license_plate": payload.get("plate_read"),
                         "time": source_detection_time,
@@ -924,6 +993,11 @@ class BackendState:
         occupied = coerce_bool(update.get("occupied"), default=True)
         captured_at = update.get("captured_at") or utcnow_iso()
         current_space = self.parking_spaces[space_id]
+        incoming_detection_time = parse_timestamp(captured_at)
+        existing_detection_time = parse_timestamp(current_space.get("source_detection_time"))
+
+        if existing_detection_time and incoming_detection_time and incoming_detection_time <= existing_detection_time:
+            return None
 
         if not occupied and not allow_clear and current_space.get("occupied"):
             return None
@@ -1177,6 +1251,7 @@ class BackendState:
         """Clear all transient data: spaces → EMPTY, delete image files,
         wipe uploads / observations / commands, reset device image+observation state."""
         with self.lock:
+            purged_at = utcnow_iso()
             # Mark every space as EMPTY
             for space_id, space in self.parking_spaces.items():
                 space["occupied"] = False
@@ -1184,8 +1259,8 @@ class BackendState:
                 space["status"] = "EMPTY"
                 space["decision_confidence"] = 0.9
                 space["decision_reason"] = "purged"
-                space["source_detection_time"] = None
-                space["last_resolved_at"] = utcnow_iso()
+                space["source_detection_time"] = purged_at
+                space["last_resolved_at"] = purged_at
                 self._db_save_space_locked(space_id)
 
             # Delete image files and clear uploads
@@ -1221,6 +1296,9 @@ class BackendState:
                 device["recent_image_ids"] = []
                 device["latest_observation_id"] = None
                 device["recent_observation_ids"] = []
+                device["latest_observation_timestamp"] = None
+                device["latest_observation_signature"] = None
+                device["observation_floor_timestamp"] = purged_at
                 device["last_command_result"] = None
                 self._db_save_device_locked(device_id)
 

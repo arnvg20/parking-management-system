@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import logging
 import math
-import re
 import threading
 import uuid
 from collections import defaultdict, deque
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
+
+from plate_utils import normalize_plate_read, parse_timestamp
 
 from .schemas import JetsonTelemetryEnvelope
 
@@ -17,31 +18,8 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
-
-_PLATE_PATTERN = re.compile(r'^[A-Z]{4}[0-9]{3}$')
-_MIN_PLATE_LENGTH = 4
-_CUSTOM_PLATE_THRESHOLD = 3  # consecutive non-standard reads before accepting any ≥4-char plate
-
-
-def _strip_plate(raw: str) -> str:
-    return str(raw).upper().replace(' ', '').replace('-', '')
-
-
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
-
-
-def parse_timestamp(value: str | None) -> datetime | None:
-    if not value:
-        return None
-    normalized = value.replace("Z", "+00:00")
-    try:
-        parsed = datetime.fromisoformat(normalized)
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
 
 
 def utcnow_iso() -> str:
@@ -265,8 +243,6 @@ class LotSpaceAssociationService:
         self.config = config or LotSpaceAssociationConfig()
         self._gps_mapper = gps_mapper
         self._lock = threading.RLock()
-        self._streak_lock = threading.Lock()
-        self._non_standard_streak: dict[str, int] = defaultdict(int)
         self._spaces = self._build_space_index(parking_spaces)
         self._history: dict[str, deque[_SpaceEvent]] = {
             space_id: deque(maxlen=40) for space_id in self._spaces
@@ -305,6 +281,28 @@ class LotSpaceAssociationService:
                 "polygon": polygon_points,
             }
         return indexed
+
+    def reset(self) -> None:
+        with self._lock:
+            self._history = {
+                space_id: deque(maxlen=40) for space_id in self._spaces
+            }
+            self._latest_decisions = {
+                space_id: SpaceDecision(
+                    space_id=space_id,
+                    status="EMPTY",
+                    plate_read=None,
+                    confidence=self.config.empty_confidence_floor,
+                    source_detection_time=None,
+                    distance_to_space_m=None,
+                    reason="no_valid_detection",
+                    location=None,
+                    detection_id=None,
+                    image_id=None,
+                    image_url=None,
+                )
+                for space_id in self._spaces
+            }
 
     def _prune_history(self, now: datetime) -> None:
         cutoff = now - timedelta(seconds=self.config.history_window_seconds)
@@ -370,33 +368,8 @@ class LotSpaceAssociationService:
         bbox_area_px = bbox_width_px * bbox_height_px
         return bbox_xyxy, bbox_width_px, bbox_height_px, bbox_area_px
 
-    def _normalize_plate_adaptive(self, raw: str | None, source_camera: str | None) -> str | None:
-        """Normalize a raw plate string with adaptive format acceptance.
-
-        Plates shorter than _MIN_PLATE_LENGTH are always rejected.
-        Standard Ontario format (AAAA999) is always accepted; on match the
-        non-standard streak for this camera resets to 0.
-        When a camera's streak reaches _CUSTOM_PLATE_THRESHOLD consecutive
-        non-standard reads, any plate with ≥_MIN_PLATE_LENGTH chars is accepted
-        as a "custom plate" and the streak continues counting.
-        """
-        if not raw:
-            return None
-        normalized = _strip_plate(raw)
-        if len(normalized) < _MIN_PLATE_LENGTH:
-            return None
-        camera_key = source_camera or "__default__"
-        if _PLATE_PATTERN.match(normalized):
-            with self._streak_lock:
-                self._non_standard_streak[camera_key] = 0
-            return normalized
-        # Non-standard plate — check streak.
-        with self._streak_lock:
-            streak = self._non_standard_streak[camera_key]
-            if streak >= _CUSTOM_PLATE_THRESHOLD:
-                return normalized
-            self._non_standard_streak[camera_key] = streak + 1
-        return None
+    def _normalize_plate_strict(self, raw: str | None) -> str | None:
+        return normalize_plate_read(raw)
 
     def _normalize_detection(self, detection_payload: dict[str, Any], fallback_timestamp: str) -> IncomingPlateDetection | None:
         latitude, longitude = self._extract_location(detection_payload)
@@ -432,7 +405,7 @@ class LotSpaceAssociationService:
                 or detection_payload.get("event_id")
                 or uuid.uuid4().hex[:10]
             ),
-            plate_read=self._normalize_plate_adaptive(raw_plate, source_camera_raw),
+            plate_read=self._normalize_plate_strict(raw_plate),
             timestamp=timestamp,
             latitude=latitude,
             longitude=longitude,
@@ -455,7 +428,7 @@ class LotSpaceAssociationService:
             if not isinstance(raw_detection, dict):
                 continue
             normalized = self._normalize_detection(raw_detection, fallback_timestamp)
-            if normalized is not None:
+            if normalized is not None and normalized.plate_read:
                 detections.append(normalized)
         return detections
 

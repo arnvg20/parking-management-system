@@ -326,10 +326,10 @@ async function loadObservations() {
     document.getElementById('observations-content').innerHTML = '<p class="empty">No observations yet.</p>';
     return;
   }
-  const rows = data.slice().reverse().map(o => {
+  const rows = data.map(o => {
     const s = o.summary || {};
     return `<tr>
-      <td style="font-size:.8rem;color:#aaa;white-space:nowrap">${fmt(o.created_at)}</td>
+      <td style="font-size:.8rem;color:#aaa;white-space:nowrap">${fmt(s.timestamp || o.created_at)}</td>
       <td><code>${o.device_id}</code></td>
       <td>${s.plate_text ? `<code>${s.plate_text}</code>` : '—'}</td>
       <td>${s.space_id||'—'}</td>
@@ -401,7 +401,7 @@ async function purgeAll() {
   const d = await r.json();
   if (r.ok) {
     flash(`Clean slate done — ${d.spaces_cleared} spaces cleared, all images and history deleted.`);
-    loadStats();
+    await Promise.all([loadSpaces(), loadUploads(), loadObservations(), loadCommands(), loadStats()]);
   } else {
     flash(d.error||'Purge failed', false);
   }
@@ -420,7 +420,7 @@ def _render_login(error: bool = False) -> str:
     return _LOGIN_HTML.format(error_block=block)
 
 
-def create_admin_router(state: Any) -> APIRouter:
+def create_admin_router(state: Any, reset_runtime_state: Any | None = None) -> APIRouter:
     username = os.getenv("ADMIN_USERNAME", "admin")
     password = os.getenv("ADMIN_PASSWORD", "admin123")
     secret = os.getenv("ADMIN_SESSION_SECRET", "parking-admin-secret-change-me")
@@ -550,6 +550,8 @@ def create_admin_router(state: Any) -> APIRouter:
         if not _auth(request):
             return _unauth()
         result = await run_in_threadpool(state.purge_all_data)
+        if reset_runtime_state is not None:
+            await run_in_threadpool(reset_runtime_state)
         return JSONResponse(result)
 
     return router

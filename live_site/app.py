@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import queue
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +24,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from fastapi.staticfiles import StaticFiles
 
 from backend_state import BackendState, first_present
+from plate_utils import normalize_plate_read, parse_timestamp
 from Tab1 import (
     environmental_detections,
     find_matching_space,
@@ -106,7 +108,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.mount("/static", StaticFiles(directory=settings.static_dir), name="static")
-app.include_router(create_admin_router(state))
+app.include_router(create_admin_router(state, reset_runtime_state=lot_space_association.reset))
 
 
 def _telemetry_key_is_valid(header_value: str | None) -> bool:
@@ -150,6 +152,31 @@ def _normalize_power_payload(power_payload: Any) -> dict[str, Any] | None:
 
 
 def _normalize_frontend_telemetry(payload: dict[str, Any]) -> dict[str, Any]:
+    def _latest_item(items: list[dict[str, Any]], *, time_keys: tuple[str, ...], predicate=None) -> dict[str, Any]:
+        filtered = [item for item in items if isinstance(item, dict) and (predicate(item) if predicate else True)]
+        if not filtered:
+            return {}
+        return max(
+            filtered,
+            key=lambda item: next(
+                (parsed for parsed in (parse_timestamp(item.get(key)) for key in time_keys) if parsed),
+                parse_timestamp(telemetry_payload.get("timestamp"))
+                or parse_timestamp(payload.get("timestamp"))
+                or datetime.min.replace(tzinfo=timezone.utc),
+            ),
+        )
+
+    def _normalized_detection_plate(item: dict[str, Any]) -> str | None:
+        return normalize_plate_read(
+            first_present(
+                item.get("plate_read"),
+                item.get("plate_text"),
+                item.get("detected_plate"),
+                item.get("plate"),
+                item.get("license_plate"),
+            )
+        )
+
     telemetry_payload = payload.get("telemetry") if isinstance(payload.get("telemetry"), dict) else payload
     power_present = isinstance(telemetry_payload, dict) and "power" in telemetry_payload
     normalized_power = _normalize_power_payload(telemetry_payload.get("power")) if power_present else None
@@ -163,20 +190,19 @@ def _normalize_frontend_telemetry(payload: dict[str, Any]) -> dict[str, Any]:
         if isinstance(telemetry_payload.get("plate_detections"), list)
         else []
     )
-    resolved_decision = next(
-        (
-            item
-            for item in space_resolution
-            if isinstance(item, dict)
-            and item.get("status") == "OCCUPIED"
-            and item.get("plate_read")
-        ),
-        None,
+    resolved_decision = _latest_item(
+        [item for item in space_resolution if isinstance(item, dict)],
+        time_keys=("source_detection_time", "timestamp"),
+        predicate=lambda item: item.get("status") == "OCCUPIED" and normalize_plate_read(item.get("plate_read")),
     )
-    first_detection = plate_detections[0] if plate_detections and isinstance(plate_detections[0], dict) else {}
-    location = first_detection.get("location") if isinstance(first_detection.get("location"), dict) else {}
+    latest_detection = _latest_item(
+        [item for item in plate_detections if isinstance(item, dict)],
+        time_keys=("time", "detected_at", "timestamp"),
+        predicate=lambda item: bool(_normalized_detection_plate(item)),
+    )
+    location = latest_detection.get("location") if isinstance(latest_detection.get("location"), dict) else {}
     if not location:
-        location = first_detection.get("gps") if isinstance(first_detection.get("gps"), dict) else {}
+        location = latest_detection.get("gps") if isinstance(latest_detection.get("gps"), dict) else {}
     resolved_location = (
         resolved_decision.get("location")
         if isinstance(resolved_decision, dict) and isinstance(resolved_decision.get("location"), dict)
@@ -184,24 +210,22 @@ def _normalize_frontend_telemetry(payload: dict[str, Any]) -> dict[str, Any]:
     )
     enriched_payload = dict(telemetry_payload or {})
     if resolved_decision:
-        enriched_payload.setdefault("detected_plate", resolved_decision.get("plate_read"))
+        enriched_payload.setdefault("detected_plate", normalize_plate_read(resolved_decision.get("plate_read")))
         enriched_payload.setdefault("confidence", resolved_decision.get("confidence"))
         enriched_payload.setdefault("timestamp", resolved_decision.get("source_detection_time"))
         if resolved_location:
             enriched_payload.setdefault("latitude", resolved_location.get("lat"))
             enriched_payload.setdefault("longitude", resolved_location.get("lon"))
-    if first_detection:
+    if latest_detection:
         enriched_payload.setdefault(
             "detected_plate",
-            first_detection.get("plate_read")
-            or first_detection.get("plate_text")
-            or first_detection.get("detected_plate"),
+            _normalized_detection_plate(latest_detection),
         )
         enriched_payload.setdefault(
             "confidence",
-            first_detection.get("confidence_level") if first_detection.get("confidence_level") is not None else first_detection.get("confidence"),
+            latest_detection.get("confidence_level") if latest_detection.get("confidence_level") is not None else latest_detection.get("confidence"),
         )
-        enriched_payload.setdefault("timestamp", first_detection.get("time") or first_detection.get("detected_at"))
+        enriched_payload.setdefault("timestamp", latest_detection.get("time") or latest_detection.get("detected_at"))
         if location:
             enriched_payload.setdefault("latitude", location.get("lat"))
             enriched_payload.setdefault("longitude", location.get("lon"))

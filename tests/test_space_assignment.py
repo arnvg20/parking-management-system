@@ -204,7 +204,7 @@ class LotSpaceAssociationServiceTests(unittest.TestCase):
             "plate_detections": [
                 {
                     "event_id": "det-large",
-                    "plate_text": "BIG100",
+                    "plate_text": "BIGG100",
                     "detected_at": "2026-04-16T16:00:10.100Z",
                     "confidence": 0.90,
                     "bbox_xyxy": [10, 20, 90, 180],
@@ -213,7 +213,7 @@ class LotSpaceAssociationServiceTests(unittest.TestCase):
                 },
                 {
                     "event_id": "det-small",
-                    "plate_text": "SMALL9",
+                    "plate_text": "SMLL009",
                     "detected_at": "2026-04-16T16:00:10.700Z",
                     "confidence": 0.97,
                     "bbox_xyxy": [12, 22, 52, 102],
@@ -247,7 +247,7 @@ class LotSpaceAssociationServiceTests(unittest.TestCase):
             "plate_detections": [
                 {
                     "event_id": "gps-only",
-                    "plate_text": "GPS123",
+                    "plate_text": "GPSA123",
                     "detected_at": "2026-04-16T16:05:10Z",
                     "confidence": 0.88,
                     "gps": {"lat": 43.000000, "lon": -79.000120},
@@ -264,7 +264,7 @@ class LotSpaceAssociationServiceTests(unittest.TestCase):
         self.assertTrue(detection_result.bbox_filter_kept)
         self.assertEqual(detection_result.bbox_filter_reason, "bbox_missing_fallback")
         self.assertIsNone(detection_result.bbox_height_px)
-        self.assertEqual(decision_by_space(result, "A1").status, "EMPTY")
+        self.assertEqual(decision_by_space(result, "A1").status, "UNCERTAIN")
 
     def test_missing_gps_detection_does_not_block_smaller_valid_bbox_detection(self) -> None:
         payload = {
@@ -273,7 +273,7 @@ class LotSpaceAssociationServiceTests(unittest.TestCase):
             "plate_detections": [
                 {
                     "event_id": "no-gps-large",
-                    "plate_text": "NOGPS1",
+                    "plate_text": "NOGP001",
                     "detected_at": "2026-04-16T16:10:10.100Z",
                     "confidence": 0.95,
                     "bbox_xyxy": [20, 30, 120, 230],
@@ -281,7 +281,7 @@ class LotSpaceAssociationServiceTests(unittest.TestCase):
                 },
                 {
                     "event_id": "with-gps-small",
-                    "plate_text": "OKGPS2",
+                    "plate_text": "OKGP002",
                     "detected_at": "2026-04-16T16:10:10.400Z",
                     "confidence": 0.91,
                     "bbox_xyxy": [16, 26, 66, 126],
@@ -325,7 +325,7 @@ class LotSpaceAssociationServiceTests(unittest.TestCase):
             "plate_detections": [
                 {
                     "event_id": "rank-one",
-                    "plate_text": "TOP111",
+                    "plate_text": "TOPA111",
                     "detected_at": "2026-04-16T16:15:10.100Z",
                     "confidence": 0.92,
                     "bbox_xyxy": [10, 20, 90, 180],
@@ -334,7 +334,7 @@ class LotSpaceAssociationServiceTests(unittest.TestCase):
                 },
                 {
                     "event_id": "rank-two",
-                    "plate_text": "TOP222",
+                    "plate_text": "TOPB222",
                     "detected_at": "2026-04-16T16:15:10.500Z",
                     "confidence": 0.89,
                     "bbox_xyxy": [15, 22, 83, 154],

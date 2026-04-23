@@ -72,7 +72,7 @@ class ObservationHistoryTests(unittest.TestCase):
                 "timestamp": "2026-04-23T15:00:00Z",
                 "plate_detections": [
                     {
-                        "plate_read": "ab-c 123",
+                        "plate_read": "abcd-123",
                         "time": "2026-04-23T15:00:00Z",
                         "location": {"lat": 43.0, "lon": -79.0},
                         "confidence_level": 0.94,
@@ -84,12 +84,132 @@ class ObservationHistoryTests(unittest.TestCase):
         self.assertIsNotNone(result)
         observations = self.state.get_observations_for_device("jetson-01")
         self.assertEqual(len(observations), 1)
-        self.assertEqual(observations[0]["summary"]["plate_text"], "ABC123")
+        self.assertEqual(observations[0]["summary"]["plate_text"], "ABCD123")
 
         detail = self.state.get_observation("jetson-01", observations[0]["id"])
         self.assertIsNotNone(detail)
-        self.assertEqual(detail["observation"]["summary"]["plate_text"], "ABC123")
-        self.assertEqual(detail["document"]["summary"]["plate_text"], "ABC123")
+        self.assertEqual(detail["observation"]["summary"]["plate_text"], "ABCD123")
+        self.assertEqual(detail["document"]["summary"]["plate_text"], "ABCD123")
+
+    def test_save_observation_skips_duplicate_and_older_detection_timestamps(self):
+        first = self.state.save_observation(
+            "jetson-01",
+            {
+                "device_id": "jetson-01",
+                "timestamp": "2026-04-23T15:00:00Z",
+                "plate_detections": [
+                    {
+                        "plate_read": "ABCD123",
+                        "time": "2026-04-23T15:00:00Z",
+                        "location": {"lat": 43.0, "lon": -79.0},
+                        "confidence_level": 0.94,
+                    }
+                ],
+            },
+        )
+        duplicate = self.state.save_observation(
+            "jetson-01",
+            {
+                "device_id": "jetson-01",
+                "timestamp": "2026-04-23T15:00:00Z",
+                "plate_detections": [
+                    {
+                        "plate_read": "ABCD123",
+                        "time": "2026-04-23T15:00:00Z",
+                        "location": {"lat": 43.0, "lon": -79.0},
+                        "confidence_level": 0.91,
+                    }
+                ],
+            },
+        )
+        older = self.state.save_observation(
+            "jetson-01",
+            {
+                "device_id": "jetson-01",
+                "timestamp": "2026-04-23T14:59:59Z",
+                "plate_detections": [
+                    {
+                        "plate_read": "ZZZZ999",
+                        "time": "2026-04-23T14:59:59Z",
+                        "location": {"lat": 43.0, "lon": -79.0},
+                        "confidence_level": 0.99,
+                    }
+                ],
+            },
+        )
+        newer = self.state.save_observation(
+            "jetson-01",
+            {
+                "device_id": "jetson-01",
+                "timestamp": "2026-04-23T15:00:05Z",
+                "plate_detections": [
+                    {
+                        "plate_read": "ZZZZ999",
+                        "time": "2026-04-23T15:00:05Z",
+                        "location": {"lat": 43.0, "lon": -79.0},
+                        "confidence_level": 0.99,
+                    }
+                ],
+            },
+        )
+
+        self.assertIsNotNone(first)
+        self.assertEqual(duplicate["id"], first["id"])
+        self.assertIsNone(older)
+        self.assertIsNotNone(newer)
+        observations = self.state.get_observations_for_device("jetson-01")
+        self.assertEqual(len(observations), 2)
+        self.assertEqual(observations[0]["summary"]["plate_text"], "ZZZZ999")
+        self.assertEqual(observations[1]["summary"]["plate_text"], "ABCD123")
+
+    def test_purge_blocks_old_observation_repopulation(self):
+        self.state.purge_all_data()
+
+        stale = self.state.save_observation(
+            "jetson-01",
+            {
+                "device_id": "jetson-01",
+                "timestamp": "2026-04-23T15:00:00Z",
+                "plate_detections": [
+                    {
+                        "plate_read": "ABCD123",
+                        "time": "2026-04-23T15:00:00Z",
+                        "location": {"lat": 43.0, "lon": -79.0},
+                        "confidence_level": 0.94,
+                    }
+                ],
+            },
+        )
+
+        self.assertIsNone(stale)
+        self.assertEqual(self.state.get_observations_for_device("jetson-01"), [])
+
+    def test_observation_summary_prefers_latest_valid_detection_in_payload(self):
+        result = self.state.save_observation(
+            "jetson-01",
+            {
+                "device_id": "jetson-01",
+                "timestamp": "2026-04-23T15:00:10Z",
+                "plate_detections": [
+                    {
+                        "plate_read": "ABCD123",
+                        "time": "2026-04-23T15:00:00Z",
+                        "location": {"lat": 43.0, "lon": -79.0},
+                        "confidence_level": 0.90,
+                    },
+                    {
+                        "plate_read": "ZZZZ999",
+                        "time": "2026-04-23T15:00:08Z",
+                        "location": {"lat": 43.0, "lon": -79.0},
+                        "confidence_level": 0.96,
+                    },
+                ],
+            },
+        )
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result["summary"]["plate_text"], "ZZZZ999")
+        self.assertEqual(result["summary"]["timestamp"], "2026-04-23T15:00:08+00:00")
 
     def test_invalid_observations_are_purged_when_state_reloads(self):
         bad_id = "bad-observation-1"
