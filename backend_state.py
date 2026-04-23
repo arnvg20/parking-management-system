@@ -988,7 +988,7 @@ class BackendState:
                 space = self.parking_spaces[space_id]
                 currently_occupied = bool(space.get("occupied")) and bool((space.get("vehicle_data") or {}).get("license_plate"))
                 existing_detection_time = parse_timestamp(space.get("source_detection_time"))
-                if existing_detection_time and incoming_detection_time and incoming_detection_time <= existing_detection_time:
+                if existing_detection_time and incoming_detection_time and incoming_detection_time < existing_detection_time:
                     continue
 
                 plate = normalize_observation_plate(payload.get("plate_read"))
