@@ -1885,6 +1885,8 @@
                 return existingLayer;
             }
 
+            const isFirstRender = !existingLayer;
+
             if (existingLayer) {
                 existingLayer.remove();
             }
@@ -1896,9 +1898,11 @@
                 fillOpacity: 0
             }).addTo(targetMap);
 
-            targetMap.fitBounds(nextLayer.getBounds(), {
-                padding: [24, 24]
-            });
+            if (isFirstRender) {
+                targetMap.fitBounds(nextLayer.getBounds(), {
+                    padding: [24, 24]
+                });
+            }
 
             return nextLayer;
         }
