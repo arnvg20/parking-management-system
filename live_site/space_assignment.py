@@ -688,6 +688,29 @@ class LotSpaceAssociationService:
             )
 
         candidates.sort(key=lambda item: (item.score, -item.distance_to_space_m), reverse=True)
+
+        # Redirect to the next closest space when a candidate is freshly occupied
+        # by a different plate (< 5 min old). Stale decisions (>= 5 min) are
+        # allowed to be evicted as normal. Falls back to the full list if every
+        # nearby candidate is freshly taken.
+        if detection.plate_read:
+            now = utcnow()
+            fresh_threshold = timedelta(minutes=5)
+            available = []
+            for c in candidates:
+                decision = self._latest_decisions[c.space_id]
+                if (
+                    decision.status == "OCCUPIED"
+                    and decision.plate_read
+                    and decision.plate_read != detection.plate_read
+                ):
+                    detected_at = parse_timestamp(decision.source_detection_time)
+                    if detected_at is not None and now - detected_at < fresh_threshold:
+                        continue
+                available.append(c)
+            if available:
+                candidates = available
+
         return candidates
 
     def _association_for_detection(
