@@ -198,6 +198,19 @@ class LotSpaceAssociationServiceTests(unittest.TestCase):
         self.assertEqual(decision_by_space(replacement_result, "A1").plate_read, "ZZZZ999")
 
     def test_bbox_prefilter_keeps_only_largest_detection_in_camera_window(self) -> None:
+        bbox_config = LotSpaceAssociationConfig(
+            outside_space_max_distance_m=TEST_CONFIG.outside_space_max_distance_m,
+            ambiguous_score_margin=TEST_CONFIG.ambiguous_score_margin,
+            ambiguous_distance_margin_m=TEST_CONFIG.ambiguous_distance_margin_m,
+            empty_after_seconds=TEST_CONFIG.empty_after_seconds,
+            history_window_seconds=TEST_CONFIG.history_window_seconds,
+            min_confirmations_for_occupied=TEST_CONFIG.min_confirmations_for_occupied,
+            min_vote_share=TEST_CONFIG.min_vote_share,
+            min_stable_confidence=TEST_CONFIG.min_stable_confidence,
+            empty_confidence_floor=TEST_CONFIG.empty_confidence_floor,
+            bbox_filter_enabled=True,
+        )
+        service = LotSpaceAssociationService(copy.deepcopy(TEST_SPACES), config=bbox_config)
         payload = {
             "device_id": "jetson-01",
             "timestamp": "2026-04-16T16:00:10Z",
@@ -223,7 +236,7 @@ class LotSpaceAssociationServiceTests(unittest.TestCase):
             ],
         }
 
-        result = self.service.ingest("jetson-01", payload)
+        result = service.ingest("jetson-01", payload)
         large_result = detection_result_by_id(result, "det-large")
         small_result = detection_result_by_id(result, "det-small")
 
@@ -241,6 +254,19 @@ class LotSpaceAssociationServiceTests(unittest.TestCase):
         self.assertIn("front-narrow:", small_result.bbox_window_key or "")
 
     def test_missing_bbox_preserves_gps_only_fallback(self) -> None:
+        bbox_config = LotSpaceAssociationConfig(
+            outside_space_max_distance_m=TEST_CONFIG.outside_space_max_distance_m,
+            ambiguous_score_margin=TEST_CONFIG.ambiguous_score_margin,
+            ambiguous_distance_margin_m=TEST_CONFIG.ambiguous_distance_margin_m,
+            empty_after_seconds=TEST_CONFIG.empty_after_seconds,
+            history_window_seconds=TEST_CONFIG.history_window_seconds,
+            min_confirmations_for_occupied=TEST_CONFIG.min_confirmations_for_occupied,
+            min_vote_share=TEST_CONFIG.min_vote_share,
+            min_stable_confidence=TEST_CONFIG.min_stable_confidence,
+            empty_confidence_floor=TEST_CONFIG.empty_confidence_floor,
+            bbox_filter_enabled=True,
+        )
+        service = LotSpaceAssociationService(copy.deepcopy(TEST_SPACES), config=bbox_config)
         payload = {
             "device_id": "jetson-01",
             "timestamp": "2026-04-16T16:05:10Z",
@@ -256,7 +282,7 @@ class LotSpaceAssociationServiceTests(unittest.TestCase):
             ],
         }
 
-        result = self.service.ingest("jetson-01", payload)
+        result = service.ingest("jetson-01", payload)
         detection_result = detection_result_by_id(result, "gps-only")
 
         self.assertEqual(detection_result.status, "ASSIGNED")
@@ -267,6 +293,19 @@ class LotSpaceAssociationServiceTests(unittest.TestCase):
         self.assertEqual(decision_by_space(result, "A1").status, "UNCERTAIN")
 
     def test_missing_gps_detection_does_not_block_smaller_valid_bbox_detection(self) -> None:
+        bbox_config = LotSpaceAssociationConfig(
+            outside_space_max_distance_m=TEST_CONFIG.outside_space_max_distance_m,
+            ambiguous_score_margin=TEST_CONFIG.ambiguous_score_margin,
+            ambiguous_distance_margin_m=TEST_CONFIG.ambiguous_distance_margin_m,
+            empty_after_seconds=TEST_CONFIG.empty_after_seconds,
+            history_window_seconds=TEST_CONFIG.history_window_seconds,
+            min_confirmations_for_occupied=TEST_CONFIG.min_confirmations_for_occupied,
+            min_vote_share=TEST_CONFIG.min_vote_share,
+            min_stable_confidence=TEST_CONFIG.min_stable_confidence,
+            empty_confidence_floor=TEST_CONFIG.empty_confidence_floor,
+            bbox_filter_enabled=True,
+        )
+        service = LotSpaceAssociationService(copy.deepcopy(TEST_SPACES), config=bbox_config)
         payload = {
             "device_id": "jetson-01",
             "timestamp": "2026-04-16T16:10:10Z",
@@ -291,7 +330,7 @@ class LotSpaceAssociationServiceTests(unittest.TestCase):
             ],
         }
 
-        result = self.service.ingest("jetson-01", payload)
+        result = service.ingest("jetson-01", payload)
         missing_gps_result = detection_result_by_id(result, "no-gps-large")
         valid_result = detection_result_by_id(result, "with-gps-small")
 
@@ -315,6 +354,7 @@ class LotSpaceAssociationServiceTests(unittest.TestCase):
             min_vote_share=TEST_CONFIG.min_vote_share,
             min_stable_confidence=TEST_CONFIG.min_stable_confidence,
             empty_confidence_floor=TEST_CONFIG.empty_confidence_floor,
+            bbox_filter_enabled=True,
             bbox_top_k_per_window=2,
             bbox_min_relative_height_ratio=0.80,
         )

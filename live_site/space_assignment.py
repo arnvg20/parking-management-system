@@ -74,7 +74,6 @@ class IncomingPlateDetection:
     latitude: float | None
     longitude: float | None
     confidence_level: float
-    heading_deg: float | None = None
     source_camera: str | None = None
     bbox_xyxy: tuple[float, float, float, float] | None = None
     bbox_width_px: float | None = None
@@ -217,37 +216,21 @@ class LotSpaceAssociationConfig:
 
     outside_space_max_distance_m: float = 3.0
     ambiguous_score_margin: float = 0.08
-    ambiguous_distance_margin_m: float = 0.05
+    ambiguous_distance_margin_m: float = 0.75
     empty_after_seconds: int = 25
     history_window_seconds: int = 45
-    min_confirmations_for_occupied: int = 1
+    min_confirmations_for_occupied: int = 2
     min_vote_share: float = 0.60
     min_stable_confidence: float = 0.40
     empty_confidence_floor: float = 0.90
     drive_by_clear_radius_m: float = 15.0
     auto_clear_occupied_spaces: bool = False
-    bbox_filter_enabled: bool = True
+    bbox_filter_enabled: bool = False
     bbox_window_sec: float = 2.0
     bbox_top_k_per_window: int = 1
     bbox_min_relative_height_ratio: float = 0.65
     bbox_min_absolute_height_px: float = 0.0
     bbox_use_area_tiebreak: bool = True
-    heading_section_filter_enabled: bool = True
-    heading_section_tolerance_deg: float = 45.0
-
-
-_HEADING_SECTION_FILTER_TARGETS = {"A", "B"}
-
-
-def _normalize_heading(heading_deg: float | None) -> float | None:
-    if heading_deg is None:
-        return None
-    return heading_deg % 360.0
-
-
-def _angular_distance_deg(lhs: float, rhs: float) -> float:
-    raw_delta = abs(lhs - rhs) % 360.0
-    return min(raw_delta, 360.0 - raw_delta)
 
 
 class LotSpaceAssociationService:
@@ -388,7 +371,7 @@ class LotSpaceAssociationService:
     def _normalize_plate_strict(self, raw: str | None) -> str | None:
         return normalize_plate_read(raw)
 
-    def _normalize_detection(self, detection_payload: dict[str, Any], fallback_timestamp: str, heading_deg: float | None = None) -> IncomingPlateDetection | None:
+    def _normalize_detection(self, detection_payload: dict[str, Any], fallback_timestamp: str) -> IncomingPlateDetection | None:
         latitude, longitude = self._extract_location(detection_payload)
         if latitude is not None and longitude is not None and self._gps_mapper is not None:
             mapped = self._gps_mapper.map_point(latitude, longitude)
@@ -434,20 +417,17 @@ class LotSpaceAssociationService:
             bbox_area_px=bbox_area_px,
             image_id=str(image_id) if image_id else None,
             image_url=str(image_url) if image_url else None,
-            heading_deg=float(detection_payload["heading_deg"]) if detection_payload.get("heading_deg") is not None else heading_deg,
             raw_payload=dict(detection_payload),
         )
 
     def _extract_detections(self, payload: dict[str, Any], device_id: str) -> list[IncomingPlateDetection]:
         envelope = JetsonTelemetryEnvelope.model_validate(payload)
         fallback_timestamp = envelope.timestamp or utcnow_iso()
-        payload_heading = payload.get("heading_deg")
-        payload_heading_float = float(payload_heading) if payload_heading is not None else None
         detections: list[IncomingPlateDetection] = []
         for raw_detection in payload.get("plate_detections", []) or []:
             if not isinstance(raw_detection, dict):
                 continue
-            normalized = self._normalize_detection(raw_detection, fallback_timestamp, heading_deg=payload_heading_float)
+            normalized = self._normalize_detection(raw_detection, fallback_timestamp)
             if normalized is not None and normalized.plate_read:
                 detections.append(normalized)
         return detections
@@ -635,27 +615,10 @@ class LotSpaceAssociationService:
         if not detection.has_valid_gps:
             return []
 
-        # Heading-based section filter: facing south → Section A only, facing north → Section B only.
-        allowed_sections: set[str] | None = None
-        if self.config.heading_section_filter_enabled and detection.heading_deg is not None:
-            heading = _normalize_heading(detection.heading_deg)
-            tol = self.config.heading_section_tolerance_deg
-            if _angular_distance_deg(heading, 180.0) <= tol:
-                allowed_sections = {"A"}
-            elif _angular_distance_deg(heading, 0.0) <= tol:
-                allowed_sections = {"B"}
-
         latitude = float(detection.latitude)
         longitude = float(detection.longitude)
         candidates: list[DetectionCandidate] = []
         for space_id, space in self._spaces.items():
-            section_id = space_id[0]
-            if (
-                allowed_sections is not None
-                and section_id in _HEADING_SECTION_FILTER_TARGETS
-                and section_id not in allowed_sections
-            ):
-                continue
             inside_polygon = point_in_polygon(latitude, longitude, space["polygon"])
             distance_to_space_m = haversine_distance_meters(
                 latitude,
@@ -688,29 +651,6 @@ class LotSpaceAssociationService:
             )
 
         candidates.sort(key=lambda item: (item.score, -item.distance_to_space_m), reverse=True)
-
-        # Redirect to the next closest space when a candidate is freshly occupied
-        # by a different plate (< 5 min old). Stale decisions (>= 5 min) are
-        # allowed to be evicted as normal. Falls back to the full list if every
-        # nearby candidate is freshly taken.
-        if detection.plate_read:
-            now = utcnow()
-            fresh_threshold = timedelta(minutes=5)
-            available = []
-            for c in candidates:
-                decision = self._latest_decisions[c.space_id]
-                if (
-                    decision.status == "OCCUPIED"
-                    and decision.plate_read
-                    and decision.plate_read != detection.plate_read
-                ):
-                    detected_at = parse_timestamp(decision.source_detection_time)
-                    if detected_at is not None and now - detected_at < fresh_threshold:
-                        continue
-                available.append(c)
-            if available:
-                candidates = available
-
         return candidates
 
     def _association_for_detection(
