@@ -838,15 +838,16 @@ class BackendState:
                 location = payload.get("location") or {}
 
                 space = self.parking_spaces[space_id]
-                space["status"] = status
-                space["decision_confidence"] = confidence
-                space["decision_reason"] = reason
-                space["source_detection_time"] = source_detection_time
-                space["last_resolved_at"] = utcnow_iso()
+                currently_occupied = bool(space.get("occupied")) and bool((space.get("vehicle_data") or {}).get("license_plate"))
 
                 if status == "OCCUPIED" and payload.get("plate_read"):
                     plate = payload.get("plate_read")
                     self._evict_plate_from_other_spaces_locked(plate, space_id)
+                    space["status"] = status
+                    space["decision_confidence"] = confidence
+                    space["decision_reason"] = reason
+                    space["source_detection_time"] = source_detection_time
+                    space["last_resolved_at"] = utcnow_iso()
                     space["occupied"] = True
                     last_orientation = self.devices.get(device_id, {}).get("last_orientation") or {}
                     image_id = payload.get("image_id")
@@ -867,11 +868,26 @@ class BackendState:
                         "heading_deg": last_orientation.get("heading_deg"),
                         "heading_source": last_orientation.get("heading_source"),
                     }
-                else:
+                    updated_spaces.append(space_id)
+                elif currently_occupied:
+                    continue
+                elif status == "UNCERTAIN":
+                    space["status"] = status
+                    space["decision_confidence"] = confidence
+                    space["decision_reason"] = reason
+                    space["source_detection_time"] = source_detection_time
+                    space["last_resolved_at"] = utcnow_iso()
                     space["occupied"] = False
-                    # Preserve vehicle_data so the last detection remains visible
-
-                updated_spaces.append(space_id)
+                    updated_spaces.append(space_id)
+                else:
+                    space["status"] = "EMPTY"
+                    space["decision_confidence"] = confidence
+                    space["decision_reason"] = reason
+                    space["source_detection_time"] = source_detection_time
+                    space["last_resolved_at"] = utcnow_iso()
+                    space["occupied"] = False
+                    space["vehicle_data"] = None
+                    updated_spaces.append(space_id)
 
             device = self.devices[device_id]
             device["last_seen_at"] = utcnow_iso()
@@ -900,29 +916,26 @@ class BackendState:
                 "updated_spaces": updated_spaces,
             }
 
-    def _apply_parking_update_locked(self, update):
+    def _apply_parking_update_locked(self, update, allow_clear=False):
         space_id = update.get("space_id")
-        if not space_id:
-            latitude = update.get("latitude")
-            longitude = update.get("longitude")
-            if latitude is None or longitude is None:
-                return None
-            space_id = self.find_matching_space(latitude, longitude, offset_meters=1)
-
         if not space_id or space_id not in self.parking_spaces:
             return None
 
         occupied = coerce_bool(update.get("occupied"), default=True)
         captured_at = update.get("captured_at") or utcnow_iso()
+        current_space = self.parking_spaces[space_id]
 
-        self.parking_spaces[space_id]["occupied"] = occupied
-        self.parking_spaces[space_id]["status"] = "OCCUPIED" if occupied else "EMPTY"
-        self.parking_spaces[space_id]["decision_confidence"] = update.get("confidence")
-        self.parking_spaces[space_id]["decision_reason"] = None if occupied else "legacy_empty_update"
-        self.parking_spaces[space_id]["source_detection_time"] = captured_at
-        self.parking_spaces[space_id]["last_resolved_at"] = utcnow_iso()
+        if not occupied and not allow_clear and current_space.get("occupied"):
+            return None
+
+        current_space["occupied"] = occupied
+        current_space["status"] = "OCCUPIED" if occupied else "EMPTY"
+        current_space["decision_confidence"] = update.get("confidence")
+        current_space["decision_reason"] = None if occupied else "manual_clear"
+        current_space["source_detection_time"] = captured_at
+        current_space["last_resolved_at"] = utcnow_iso()
         if occupied:
-            self.parking_spaces[space_id]["vehicle_data"] = {
+            current_space["vehicle_data"] = {
                 "license_plate": update.get("license_plate"),
                 "time": captured_at,
                 "latitude": update.get("latitude"),
@@ -934,13 +947,13 @@ class BackendState:
                 "reason": None,
             }
         else:
-            self.parking_spaces[space_id]["vehicle_data"] = None
+            current_space["vehicle_data"] = None
 
         return space_id
 
     def apply_manual_parking_update(self, update):
         with self.lock:
-            changed_space = self._apply_parking_update_locked(update)
+            changed_space = self._apply_parking_update_locked(update, allow_clear=True)
             if not changed_space:
                 return None
             self._db_save_space_locked(changed_space)

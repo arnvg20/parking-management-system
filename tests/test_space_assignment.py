@@ -75,7 +75,7 @@ class LotSpaceAssociationServiceTests(unittest.TestCase):
 
         self.assertEqual(decision_by_space(first_result, "A1").status, "UNCERTAIN")
         self.assertEqual(decision_by_space(second_result, "A1").status, "OCCUPIED")
-        self.assertEqual(decision_by_space(second_result, "A1").plate_read, "ABC1234")
+        self.assertEqual(decision_by_space(second_result, "A1").plate_read, "ABCD123")
         self.assertEqual(decision_by_space(second_result, "A2").status, "EMPTY")
         self.assertEqual(second_result.detection_results[0].assigned_space_id, "A1")
 
@@ -171,8 +171,31 @@ class LotSpaceAssociationServiceTests(unittest.TestCase):
         }
         empty_result = self.service.ingest("jetson-01", empty_payload)
 
-        self.assertEqual(decision_by_space(empty_result, "A1").status, "EMPTY")
-        self.assertEqual(decision_by_space(empty_result, "A1").reason, "no_valid_detection")
+        self.assertEqual(decision_by_space(empty_result, "A1").status, "OCCUPIED")
+        self.assertEqual(decision_by_space(empty_result, "A1").plate_read, "ABCD123")
+
+    def test_new_plate_replaces_existing_occupied_plate_without_manual_clear(self) -> None:
+        warm_one = load_fixture()
+        warm_two = load_fixture()
+        warm_one["timestamp"] = "2026-04-16T15:52:10Z"
+        warm_one["plate_detections"][0]["time"] = "2026-04-16T15:52:10Z"
+        warm_two["timestamp"] = "2026-04-16T15:52:14Z"
+        warm_two["plate_detections"][0]["time"] = "2026-04-16T15:52:14Z"
+
+        self.service.ingest("jetson-01", warm_one)
+        occupied_result = self.service.ingest("jetson-01", warm_two)
+        self.assertEqual(decision_by_space(occupied_result, "A1").status, "OCCUPIED")
+        self.assertEqual(decision_by_space(occupied_result, "A1").plate_read, "ABCD123")
+
+        replacement_payload = load_fixture()
+        replacement_payload["timestamp"] = "2026-04-16T15:52:20Z"
+        replacement_payload["plate_detections"][0]["time"] = "2026-04-16T15:52:20Z"
+        replacement_payload["plate_detections"][0]["plate_read"] = "ZZZZ999"
+
+        replacement_result = self.service.ingest("jetson-01", replacement_payload)
+
+        self.assertEqual(decision_by_space(replacement_result, "A1").status, "OCCUPIED")
+        self.assertEqual(decision_by_space(replacement_result, "A1").plate_read, "ZZZZ999")
 
     def test_bbox_prefilter_keeps_only_largest_detection_in_camera_window(self) -> None:
         payload = {
@@ -241,7 +264,7 @@ class LotSpaceAssociationServiceTests(unittest.TestCase):
         self.assertTrue(detection_result.bbox_filter_kept)
         self.assertEqual(detection_result.bbox_filter_reason, "bbox_missing_fallback")
         self.assertIsNone(detection_result.bbox_height_px)
-        self.assertEqual(decision_by_space(result, "A1").status, "UNCERTAIN")
+        self.assertEqual(decision_by_space(result, "A1").status, "EMPTY")
 
     def test_missing_gps_detection_does_not_block_smaller_valid_bbox_detection(self) -> None:
         payload = {

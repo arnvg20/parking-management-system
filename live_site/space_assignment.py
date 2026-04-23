@@ -246,6 +246,7 @@ class LotSpaceAssociationConfig:
     min_stable_confidence: float = 0.40
     empty_confidence_floor: float = 0.90
     drive_by_clear_radius_m: float = 15.0
+    auto_clear_occupied_spaces: bool = False
     bbox_filter_enabled: bool = True
     bbox_window_sec: float = 2.0
     bbox_top_k_per_window: int = 1
@@ -800,8 +801,9 @@ class LotSpaceAssociationService:
     def _derive_space_decision(self, space_id: str, now: datetime) -> SpaceDecision:
         history = self._history[space_id]
         recent_events = list(history)
+        last_decision = self._latest_decisions[space_id]
         if not recent_events:
-            return self._latest_decisions[space_id]
+            return last_decision
 
         freshness_cutoff = now - timedelta(seconds=self.config.empty_after_seconds)
         occupied_events = [
@@ -812,9 +814,29 @@ class LotSpaceAssociationService:
             and event.timestamp >= freshness_cutoff
         ]
 
+        if not self.config.auto_clear_occupied_spaces and last_decision.status == "OCCUPIED":
+            if occupied_events:
+                latest_occupied = max(occupied_events, key=lambda event: event.timestamp)
+                decision = SpaceDecision(
+                    space_id=space_id,
+                    status="OCCUPIED",
+                    plate_read=latest_occupied.plate_read or last_decision.plate_read,
+                    confidence=max(last_decision.confidence, latest_occupied.confidence),
+                    source_detection_time=latest_occupied.source_detection_time or last_decision.source_detection_time,
+                    distance_to_space_m=latest_occupied.distance_to_space_m,
+                    reason=None,
+                    location=latest_occupied.location,
+                    detection_id=latest_occupied.detection_id,
+                    image_id=latest_occupied.image_id,
+                    image_url=latest_occupied.image_url,
+                )
+                self._latest_decisions[space_id] = decision
+                return decision
+            return last_decision
+
         # If robot drove past this space (drive_by=True) AFTER the last OCCUPIED event,
         # it confirmed no car is there — clear immediately without waiting for the full window.
-        if occupied_events:
+        if self.config.auto_clear_occupied_spaces and occupied_events:
             last_occupied_ts = max(e.timestamp for e in occupied_events)
             drive_by_clear = any(
                 e.drive_by and e.status == "EMPTY" and e.timestamp > last_occupied_ts
@@ -1018,41 +1040,46 @@ class LotSpaceAssociationService:
                     continue
 
                 if space_id in affected_uncertain_spaces:
-                    self._record_event(
-                        space_id,
-                        _SpaceEvent(
-                            status="UNCERTAIN",
-                            plate_read=None,
-                            confidence=0.45,
-                            timestamp=current_time,
-                            source_detection_time=payload.get("timestamp"),
-                            distance_to_space_m=None,
-                            reason="ambiguous_location",
-                            location=None,
-                            detection_id=None,
-                            image_id=None,
-                            image_url=None,
-                        ),
-                    )
+                    if not (
+                        not self.config.auto_clear_occupied_spaces
+                        and self._latest_decisions[space_id].status == "OCCUPIED"
+                    ):
+                        self._record_event(
+                            space_id,
+                            _SpaceEvent(
+                                status="UNCERTAIN",
+                                plate_read=None,
+                                confidence=0.45,
+                                timestamp=current_time,
+                                source_detection_time=payload.get("timestamp"),
+                                distance_to_space_m=None,
+                                reason="ambiguous_location",
+                                location=None,
+                                detection_id=None,
+                                image_id=None,
+                                image_url=None,
+                            ),
+                        )
                 else:
-                    is_drive_by = space_id in nearby_spaces
-                    self._record_event(
-                        space_id,
-                        _SpaceEvent(
-                            status="EMPTY",
-                            plate_read=None,
-                            confidence=self.config.empty_confidence_floor,
-                            timestamp=current_time,
-                            source_detection_time=payload.get("timestamp"),
-                            distance_to_space_m=None,
-                            reason="drive_by_no_detection" if is_drive_by else "no_valid_detection",
-                            location=None,
-                            detection_id=None,
-                            image_id=None,
-                            image_url=None,
-                            drive_by=is_drive_by,
-                        ),
-                    )
+                    if self.config.auto_clear_occupied_spaces:
+                        is_drive_by = space_id in nearby_spaces
+                        self._record_event(
+                            space_id,
+                            _SpaceEvent(
+                                status="EMPTY",
+                                plate_read=None,
+                                confidence=self.config.empty_confidence_floor,
+                                timestamp=current_time,
+                                source_detection_time=payload.get("timestamp"),
+                                distance_to_space_m=None,
+                                reason="drive_by_no_detection" if is_drive_by else "no_valid_detection",
+                                location=None,
+                                detection_id=None,
+                                image_id=None,
+                                image_url=None,
+                                drive_by=is_drive_by,
+                            ),
+                        )
 
             space_decisions = [self._derive_space_decision(space_id, current_time) for space_id in self._spaces]
             return LotResolutionResult(

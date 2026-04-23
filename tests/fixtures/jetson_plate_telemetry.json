@@ -19,7 +19,7 @@
   },
   "plate_detections": [
     {
-      "plate_read": "ABC1234",
+      "plate_read": "ABCD123",
       "time": "2026-04-16T15:32:10Z",
       "location": {
         "lat": 43.0,
