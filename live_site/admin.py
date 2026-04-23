@@ -354,7 +354,7 @@ async function loadCommands() {
     document.getElementById('commands-content').innerHTML = '<p class="empty">No commands yet.</p>';
     return;
   }
-  const rows = data.slice().reverse().map(c => `
+  const rows = data.map(c => `
     <tr>
       <td>#${c.id}</td>
       <td><code>${c.device_id}</code></td>
