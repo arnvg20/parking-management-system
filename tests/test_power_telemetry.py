@@ -82,6 +82,64 @@ class PowerTelemetryTests(unittest.TestCase):
 
         self.assertIsNone(normalized.get("detected_plate"))
 
+    def test_frontend_normalization_prefers_newer_detection_over_older_resolution(self) -> None:
+        normalized = _normalize_frontend_telemetry(
+            {
+                "device_id": "jetson-01",
+                "timestamp": "2026-04-21T15:20:10Z",
+                "space_resolution": [
+                    {
+                        "status": "OCCUPIED",
+                        "plate_read": "ABCD123",
+                        "confidence": 0.88,
+                        "source_detection_time": "2026-04-21T15:19:00Z",
+                        "location": {"lat": 43.100001, "lon": -79.100001},
+                    }
+                ],
+                "plate_detections": [
+                    {
+                        "plate_read": "ZZZZ999",
+                        "time": "2026-04-21T15:20:08Z",
+                        "location": {"lat": 43.200002, "lon": -79.200002},
+                        "confidence_level": 0.97,
+                    }
+                ],
+            }
+        )
+
+        self.assertEqual(normalized["detected_plate"], "ZZZZ999")
+        self.assertEqual(normalized["timestamp"], "2026-04-21T15:20:08Z")
+        self.assertEqual(normalized["latitude"], 43.200002)
+        self.assertEqual(normalized["longitude"], -79.200002)
+
+    def test_frontend_normalization_does_not_reuse_old_resolution_location(self) -> None:
+        normalized = _normalize_frontend_telemetry(
+            {
+                "device_id": "jetson-01",
+                "timestamp": "2026-04-21T15:20:10Z",
+                "space_resolution": [
+                    {
+                        "status": "OCCUPIED",
+                        "plate_read": "ABCD123",
+                        "confidence": 0.88,
+                        "source_detection_time": "2026-04-21T15:19:00Z",
+                        "location": {"lat": 43.100001, "lon": -79.100001},
+                    }
+                ],
+                "plate_detections": [
+                    {
+                        "plate_read": "ZZZZ999",
+                        "time": "2026-04-21T15:20:08Z",
+                        "confidence_level": 0.97,
+                    }
+                ],
+            }
+        )
+
+        self.assertEqual(normalized["detected_plate"], "ZZZZ999")
+        self.assertNotEqual(normalized.get("latitude"), 43.100001)
+        self.assertNotEqual(normalized.get("longitude"), -79.100001)
+
     def test_null_voltage_is_preserved_as_unavailable(self) -> None:
         normalized = _normalize_frontend_telemetry(
             {

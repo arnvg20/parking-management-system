@@ -466,66 +466,121 @@ class BackendState:
             if isinstance(resolved_candidate, dict) and isinstance(resolved_candidate.get("location"), dict)
             else {}
         )
+        selected_plate_source = None
+        matched_resolved_candidate = None
 
-        plate_text = first_valid_observation_plate(
-            resolved_occupied.get("plate_read") if resolved_occupied else None,
-            primary_detection.get("plate_text"),
-            primary_detection.get("plate_read"),
-            primary_detection.get("text"),
-            primary_detection.get("detected_plate"),
-            primary_detection.get("license_plate"),
-            telemetry.get("detected_plate"),
-            telemetry.get("plate"),
-            telemetry.get("license_plate"),
-            primary_update.get("license_plate"),
-            plate_status.get("text"),
+        if valid_detections:
+            selected_plate_source = {
+                "kind": "detection",
+                "plate_text": first_valid_observation_plate(
+                    primary_detection.get("plate_text"),
+                    primary_detection.get("plate_read"),
+                    primary_detection.get("text"),
+                    primary_detection.get("detected_plate"),
+                    primary_detection.get("license_plate"),
+                ),
+                "confidence": first_present(
+                    primary_detection.get("confidence"),
+                    primary_detection.get("confidence_level"),
+                ),
+                "timestamp": first_present(
+                    primary_detection.get("timestamp"),
+                    primary_detection.get("time"),
+                    primary_detection.get("detected_at"),
+                ),
+                "latitude": first_present(
+                    primary_detection.get("latitude"),
+                    primary_location.get("lat"),
+                ),
+                "longitude": first_present(
+                    primary_detection.get("longitude"),
+                    primary_location.get("lon"),
+                ),
+                "space_id": primary_detection.get("space_id"),
+                "space_status": None,
+            }
+            detection_timestamp = parse_timestamp(selected_plate_source["timestamp"])
+            detection_plate = selected_plate_source["plate_text"]
+            if resolved_candidate and detection_plate:
+                resolved_timestamp = parse_timestamp(
+                    resolved_candidate.get("source_detection_time") or resolved_candidate.get("timestamp")
+                )
+                resolved_plate = normalize_observation_plate(resolved_candidate.get("plate_read"))
+                if resolved_plate == detection_plate and resolved_timestamp == detection_timestamp:
+                    matched_resolved_candidate = resolved_candidate
+        elif resolved_occupied:
+            selected_plate_source = {
+                "kind": "resolution",
+                "plate_text": normalize_observation_plate(resolved_occupied.get("plate_read")),
+                "confidence": resolved_occupied.get("confidence"),
+                "timestamp": resolved_occupied.get("source_detection_time") or resolved_occupied.get("timestamp"),
+                "latitude": resolved_location.get("lat"),
+                "longitude": resolved_location.get("lon"),
+                "space_id": resolved_occupied.get("space_id"),
+                "space_status": resolved_occupied.get("status"),
+            }
+        elif primary_update and normalize_observation_plate(primary_update.get("license_plate")):
+            selected_plate_source = {
+                "kind": "parking_update",
+                "plate_text": normalize_observation_plate(primary_update.get("license_plate")),
+                "confidence": primary_update.get("confidence"),
+                "timestamp": primary_update.get("captured_at") or primary_update.get("timestamp"),
+                "latitude": primary_update.get("latitude"),
+                "longitude": primary_update.get("longitude"),
+                "space_id": primary_update.get("space_id"),
+                "space_status": "OCCUPIED" if primary_update.get("space_id") else None,
+            }
+
+        plate_text = first_present(
+            selected_plate_source.get("plate_text") if selected_plate_source else None,
+            first_valid_observation_plate(
+                telemetry.get("detected_plate"),
+                telemetry.get("plate"),
+                telemetry.get("license_plate"),
+                plate_status.get("text"),
+            ),
         )
         confidence = first_present(
-            resolved_candidate.get("confidence") if resolved_candidate else None,
-            primary_detection.get("confidence"),
-            primary_detection.get("confidence_level"),
+            matched_resolved_candidate.get("confidence") if matched_resolved_candidate else None,
+            selected_plate_source.get("confidence") if selected_plate_source else None,
             telemetry.get("confidence"),
-            primary_update.get("confidence"),
             plate_status.get("confidence"),
+            primary_update.get("confidence"),
         )
         timestamp = first_present(
-            resolved_candidate.get("source_detection_time") if resolved_candidate else None,
-            primary_detection.get("timestamp"),
-            primary_detection.get("time"),
+            matched_resolved_candidate.get("source_detection_time") if matched_resolved_candidate else None,
+            selected_plate_source.get("timestamp") if selected_plate_source else None,
             telemetry.get("timestamp"),
             telemetry.get("sent_at_utc"),
-            primary_update.get("captured_at"),
             lot_status.get("observed_at_utc"),
+            primary_update.get("captured_at"),
             payload.get("timestamp"),
             created_at,
         )
         latitude = first_present(
-            resolved_location.get("lat"),
-            primary_detection.get("latitude"),
-            primary_location.get("lat"),
+            selected_plate_source.get("latitude") if selected_plate_source else None,
             telemetry.get("latitude"),
             telemetry.get("lat"),
-            primary_update.get("latitude"),
             gps_status.get("lat"),
+            primary_update.get("latitude"),
         )
         longitude = first_present(
-            resolved_location.get("lon"),
-            primary_detection.get("longitude"),
-            primary_location.get("lon"),
+            selected_plate_source.get("longitude") if selected_plate_source else None,
             telemetry.get("longitude"),
             telemetry.get("lon"),
-            primary_update.get("longitude"),
             gps_status.get("lon"),
+            primary_update.get("longitude"),
         )
         space_id = first_present(
-            resolved_candidate.get("space_id") if resolved_candidate else None,
-            primary_detection.get("space_id"),
-            primary_update.get("space_id"),
+            matched_resolved_candidate.get("space_id") if matched_resolved_candidate else None,
+            selected_plate_source.get("space_id") if selected_plate_source else None,
             telemetry.get("space_id"),
             lot_status.get("space_id"),
+            primary_update.get("space_id"),
         )
         space_status = first_present(
-            resolved_candidate.get("status") if resolved_candidate else None,
+            matched_resolved_candidate.get("status") if matched_resolved_candidate else None,
+            selected_plate_source.get("space_status") if selected_plate_source else None,
             "OCCUPIED" if space_id and plate_text else None,
         )
         robot_status = first_present(
@@ -950,7 +1005,7 @@ class BackendState:
                     image_id = payload.get("image_id")
                     image_url = payload.get("image_url")
                     space["vehicle_data"] = {
-                        "license_plate": payload.get("plate_read"),
+                        "license_plate": plate,
                         "time": source_detection_time,
                         "latitude": location.get("lat"),
                         "longitude": location.get("lon"),

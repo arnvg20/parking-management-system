@@ -209,26 +209,36 @@ def _normalize_frontend_telemetry(payload: dict[str, Any]) -> dict[str, Any]:
         else {}
     )
     enriched_payload = dict(telemetry_payload or {})
-    if resolved_decision:
-        enriched_payload.setdefault("detected_plate", normalize_plate_read(resolved_decision.get("plate_read")))
-        enriched_payload.setdefault("confidence", resolved_decision.get("confidence"))
-        enriched_payload.setdefault("timestamp", resolved_decision.get("source_detection_time"))
-        if resolved_location:
-            enriched_payload.setdefault("latitude", resolved_location.get("lat"))
-            enriched_payload.setdefault("longitude", resolved_location.get("lon"))
+    selected_plate = None
+    selected_confidence = None
+    selected_timestamp = None
+    selected_location = {}
     if latest_detection:
-        enriched_payload.setdefault(
-            "detected_plate",
-            _normalized_detection_plate(latest_detection),
+        selected_plate = _normalized_detection_plate(latest_detection)
+        selected_confidence = (
+            latest_detection.get("confidence_level")
+            if latest_detection.get("confidence_level") is not None
+            else latest_detection.get("confidence")
         )
-        enriched_payload.setdefault(
-            "confidence",
-            latest_detection.get("confidence_level") if latest_detection.get("confidence_level") is not None else latest_detection.get("confidence"),
-        )
-        enriched_payload.setdefault("timestamp", latest_detection.get("time") or latest_detection.get("detected_at"))
-        if location:
-            enriched_payload.setdefault("latitude", location.get("lat"))
-            enriched_payload.setdefault("longitude", location.get("lon"))
+        selected_timestamp = latest_detection.get("time") or latest_detection.get("detected_at")
+        selected_location = location
+    elif resolved_decision:
+        selected_plate = normalize_plate_read(resolved_decision.get("plate_read"))
+        selected_confidence = resolved_decision.get("confidence")
+        selected_timestamp = resolved_decision.get("source_detection_time")
+        selected_location = resolved_location
+
+    if selected_plate:
+        enriched_payload["detected_plate"] = selected_plate
+    if selected_confidence is not None:
+        enriched_payload["confidence"] = selected_confidence
+    if selected_timestamp:
+        enriched_payload["timestamp"] = selected_timestamp
+    if selected_location:
+        if selected_location.get("lat") is not None:
+            enriched_payload["latitude"] = selected_location.get("lat")
+        if selected_location.get("lon") is not None:
+            enriched_payload["longitude"] = selected_location.get("lon")
     orientation_raw = telemetry_payload.get("orientation") if isinstance(telemetry_payload.get("orientation"), dict) else {}
     location_raw = telemetry_payload.get("location") if isinstance(telemetry_payload.get("location"), dict) else {}
     heading_deg = first_present(

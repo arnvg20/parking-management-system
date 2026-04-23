@@ -211,6 +211,70 @@ class ObservationHistoryTests(unittest.TestCase):
         self.assertEqual(result["summary"]["plate_text"], "ZZZZ999")
         self.assertEqual(result["summary"]["timestamp"], "2026-04-23T15:00:08+00:00")
 
+    def test_observation_summary_does_not_reuse_older_resolution_location(self):
+        result = self.state.save_observation(
+            "jetson-01",
+            {
+                "device_id": "jetson-01",
+                "timestamp": "2026-04-23T15:00:10Z",
+                "space_resolution": [
+                    {
+                        "space_id": "A1",
+                        "status": "OCCUPIED",
+                        "plate_read": "ABCD123",
+                        "confidence": 0.89,
+                        "source_detection_time": "2026-04-23T15:00:00Z",
+                        "location": {"lat": 43.100001, "lon": -79.100001},
+                    }
+                ],
+                "plate_detections": [
+                    {
+                        "plate_read": "ZZZZ999",
+                        "time": "2026-04-23T15:00:08Z",
+                        "location": {"lat": 43.200002, "lon": -79.200002},
+                        "confidence_level": 0.96,
+                    }
+                ],
+            },
+        )
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result["summary"]["plate_text"], "ZZZZ999")
+        self.assertEqual(result["summary"]["timestamp"], "2026-04-23T15:00:08+00:00")
+        self.assertEqual(result["summary"]["latitude"], 43.200002)
+        self.assertEqual(result["summary"]["longitude"], -79.200002)
+
+    def test_observation_summary_with_new_detection_and_no_location_keeps_old_location_out(self):
+        result = self.state.save_observation(
+            "jetson-01",
+            {
+                "device_id": "jetson-01",
+                "timestamp": "2026-04-23T15:00:10Z",
+                "space_resolution": [
+                    {
+                        "space_id": "A1",
+                        "status": "OCCUPIED",
+                        "plate_read": "ABCD123",
+                        "confidence": 0.89,
+                        "source_detection_time": "2026-04-23T15:00:00Z",
+                        "location": {"lat": 43.100001, "lon": -79.100001},
+                    }
+                ],
+                "plate_detections": [
+                    {
+                        "plate_read": "ZZZZ999",
+                        "time": "2026-04-23T15:00:08Z",
+                        "confidence_level": 0.96,
+                    }
+                ],
+            },
+        )
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result["summary"]["plate_text"], "ZZZZ999")
+        self.assertNotEqual(result["summary"].get("latitude"), 43.100001)
+        self.assertNotEqual(result["summary"].get("longitude"), -79.100001)
+
     def test_invalid_observations_are_purged_when_state_reloads(self):
         bad_id = "bad-observation-1"
         bad_path = self.runtime_dir / "observations" / "jetson-01" / "bad-observation.json"
