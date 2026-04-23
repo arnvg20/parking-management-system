@@ -173,6 +173,7 @@ class BackendState:
                 device["latest_frame_path"] = None
 
         self._purge_invalid_observations()
+        self._purge_invalid_auto_space_plates()
         for device_id in self.devices:
             self._refresh_device_observation_state_locked(device_id)
 
@@ -327,6 +328,30 @@ class BackendState:
         if not isinstance(record, dict):
             return False
         return bool(self._normalize_observation_summary_plate(record.get("summary")))
+
+    def _purge_invalid_auto_space_plates(self):
+        for space_id, space in self.parking_spaces.items():
+            vehicle_data = space.get("vehicle_data") if isinstance(space.get("vehicle_data"), dict) else None
+            if not vehicle_data:
+                continue
+
+            normalized_plate = normalize_observation_plate(vehicle_data.get("license_plate"))
+            if normalized_plate:
+                if normalized_plate != vehicle_data.get("license_plate"):
+                    vehicle_data["license_plate"] = normalized_plate
+                    self._db_save_space_locked(space_id)
+                continue
+
+            if not vehicle_data.get("device_id"):
+                continue
+
+            space["occupied"] = False
+            space["vehicle_data"] = None
+            space["status"] = "EMPTY"
+            space["decision_confidence"] = 0.9
+            space["decision_reason"] = "invalid_plate_read_filtered"
+            space["last_resolved_at"] = utcnow_iso()
+            self._db_save_space_locked(space_id)
 
     def _purge_invalid_observations(self):
         changed_devices = set()
@@ -911,8 +936,9 @@ class BackendState:
                 if existing_detection_time and incoming_detection_time and incoming_detection_time <= existing_detection_time:
                     continue
 
-                if status == "OCCUPIED" and payload.get("plate_read"):
-                    plate = payload.get("plate_read")
+                plate = normalize_observation_plate(payload.get("plate_read"))
+
+                if status == "OCCUPIED" and plate:
                     self._evict_plate_from_other_spaces_locked(plate, space_id)
                     space["status"] = status
                     space["decision_confidence"] = confidence
@@ -938,6 +964,8 @@ class BackendState:
                         "heading_source": last_orientation.get("heading_source"),
                     }
                     updated_spaces.append(space_id)
+                elif status == "OCCUPIED":
+                    continue
                 elif currently_occupied:
                     continue
                 elif status == "UNCERTAIN":
@@ -1002,6 +1030,12 @@ class BackendState:
         if not occupied and not allow_clear and current_space.get("occupied"):
             return None
 
+        plate = update.get("license_plate")
+        if occupied and update.get("device_id"):
+            plate = normalize_observation_plate(plate)
+            if not plate:
+                return None
+
         current_space["occupied"] = occupied
         current_space["status"] = "OCCUPIED" if occupied else "EMPTY"
         current_space["decision_confidence"] = update.get("confidence")
@@ -1010,7 +1044,7 @@ class BackendState:
         current_space["last_resolved_at"] = utcnow_iso()
         if occupied:
             current_space["vehicle_data"] = {
-                "license_plate": update.get("license_plate"),
+                "license_plate": plate,
                 "time": captured_at,
                 "latitude": update.get("latitude"),
                 "longitude": update.get("longitude"),

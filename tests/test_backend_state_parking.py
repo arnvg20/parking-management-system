@@ -174,6 +174,35 @@ class BackendStateParkingTests(unittest.TestCase):
             self.assertIsNone(vehicle_data["image_id"])
             self.assertIsNone(vehicle_data["image_url"])
 
+    def test_invalid_auto_detected_plate_is_cleared_on_reload(self) -> None:
+        parking_spaces = {
+            "A1": {
+                "latitude": 43.0,
+                "longitude": -79.0,
+                "occupied": False,
+                "vehicle_data": None,
+            }
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state = BackendState(parking_spaces, lambda *_args, **_kwargs: "A1", runtime_dir=tmpdir)
+            state.parking_spaces["A1"].update(
+                {
+                    "occupied": True,
+                    "status": "OCCUPIED",
+                    "vehicle_data": {
+                        "license_plate": "BAD123",
+                        "device_id": "jetson-01",
+                    },
+                }
+            )
+            state._db_save_space_locked("A1")
+
+            reloaded = BackendState(parking_spaces, lambda *_args, **_kwargs: "A1", runtime_dir=tmpdir)
+
+            self.assertFalse(reloaded.parking_spaces["A1"]["occupied"])
+            self.assertIsNone(reloaded.parking_spaces["A1"]["vehicle_data"])
+            self.assertEqual(reloaded.parking_spaces["A1"]["decision_reason"], "invalid_plate_read_filtered")
+
 
 if __name__ == "__main__":
     unittest.main()
