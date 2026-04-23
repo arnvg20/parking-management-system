@@ -44,6 +44,7 @@ def first_present(*values):
 
 class BackendState:
     OBSERVATION_HISTORY_LIMIT = 80
+    DEVICE_PERSIST_INTERVAL_SECONDS = 5.0
 
     def __init__(self, parking_spaces, find_matching_space, runtime_dir="runtime_data", default_device_id="jetson-01"):
         self.lock = threading.RLock()
@@ -58,6 +59,7 @@ class BackendState:
         self.observations = {}
         self.subscribers = set()
         self.command_sequence = 1
+        self._device_last_persisted_at = {}
         self.default_device_id = default_device_id
 
         self.runtime_dir = Path(runtime_dir)
@@ -160,9 +162,19 @@ class BackendState:
     def _db_save_device_locked(self, device_id: str) -> None:
         if device_id in self.devices:
             self._db.upsert_device(device_id, self.devices[device_id])
+            self._device_last_persisted_at[device_id] = time.monotonic()
 
-    def _db_save_meta_locked(self) -> None:
-        self._db.set_meta("command_sequence", str(self.command_sequence))
+    def _maybe_persist_device_locked(self, device_id: str, force: bool = False) -> bool:
+        if device_id not in self.devices:
+            return False
+        if not force:
+            last_persisted_at = self._device_last_persisted_at.get(device_id)
+            if last_persisted_at is not None:
+                elapsed = time.monotonic() - last_persisted_at
+                if elapsed < self.DEVICE_PERSIST_INTERVAL_SECONDS:
+                    return False
+        self._db_save_device_locked(device_id)
+        return True
 
     def _emit_event_locked(self, topic, payload):
         event = {
@@ -616,7 +628,7 @@ class BackendState:
                 device["last_streams"] = streams
 
             snapshot = self._device_snapshot_locked(device_id)
-            self._db_save_device_locked(device_id)
+            self._maybe_persist_device_locked(device_id)
             self._emit_event_locked("device.updated", {"device_id": device_id})
             self.command_condition.notify_all()
             return snapshot
@@ -649,7 +661,7 @@ class BackendState:
                     applied_spaces.append(changed_space)
 
             snapshot = self._device_snapshot_locked(device_id)
-            self._db_save_device_locked(device_id)
+            self._maybe_persist_device_locked(device_id)
             for sid in applied_spaces:
                 self._db_save_space_locked(sid)
             self._emit_event_locked("device.updated", {"device_id": device_id})
@@ -766,7 +778,7 @@ class BackendState:
                     device["last_streams"] = streams
 
             snapshot = self._device_snapshot_locked(device_id)
-            self._db_save_device_locked(device_id)
+            self._maybe_persist_device_locked(device_id)
             for sid in updated_spaces:
                 self._db_save_space_locked(sid)
             self._emit_event_locked("device.updated", {"device_id": device_id})
@@ -877,8 +889,7 @@ class BackendState:
             }
             self.command_sequence += 1
             self.commands.append(command)
-            self._db.insert_command(command)
-            self._db_save_meta_locked()
+            self._db.insert_command_and_set_sequence(command, self.command_sequence)
             self._emit_event_locked("command.updated", {"command_id": command["id"], "status": "queued"})
             self.command_condition.notify_all()
             return copy.deepcopy(command)
@@ -925,7 +936,7 @@ class BackendState:
                             "completed_at": command["completed_at"],
                         }
                     self._db.update_command(command)
-                    self._db_save_device_locked(device_id)
+                    self._maybe_persist_device_locked(device_id, force=True)
                     self._emit_event_locked(
                         "command.updated",
                         {"command_id": command_id, "status": command["status"]},
@@ -935,14 +946,14 @@ class BackendState:
 
     def save_image(self, device_id, filename, image_bytes, metadata=None, content_type="image/jpeg"):
         metadata = metadata or {}
+        suffix = Path(secure_filename(filename or "capture.jpg")).suffix or ".jpg"
+        upload_id = uuid.uuid4().hex
+        file_path = self.images_dir / f"{upload_id}{suffix}"
+        file_path.write_bytes(image_bytes)
+
         with self.lock:
             if device_id not in self.devices:
                 self.devices[device_id] = self._device_template(device_id)
-
-            suffix = Path(secure_filename(filename or "capture.jpg")).suffix or ".jpg"
-            upload_id = uuid.uuid4().hex
-            file_path = self.images_dir / f"{upload_id}{suffix}"
-            file_path.write_bytes(image_bytes)
 
             record = {
                 "id": upload_id,
@@ -973,13 +984,13 @@ class BackendState:
 
     def save_frame(self, device_id, filename, frame_bytes, metadata=None):
         metadata = metadata or {}
+        suffix = Path(secure_filename(filename or "frame.jpg")).suffix or ".jpg"
+        file_path = self.frames_dir / f"{device_id}_latest{suffix}"
+        file_path.write_bytes(frame_bytes)
+
         with self.frame_condition:
             if device_id not in self.devices:
                 self.devices[device_id] = self._device_template(device_id)
-
-            suffix = Path(secure_filename(filename or "frame.jpg")).suffix or ".jpg"
-            file_path = self.frames_dir / f"{device_id}_latest{suffix}"
-            file_path.write_bytes(frame_bytes)
 
             device = self.devices[device_id]
             device["latest_frame_path"] = str(file_path)
@@ -990,7 +1001,6 @@ class BackendState:
             device["last_seen_at"] = utcnow_iso()
             device["updated_at"] = utcnow_iso()
 
-            self._db_save_device_locked(device_id)
             self._emit_event_locked("frame.updated", {"device_id": device_id})
             self.frame_condition.notify_all()
 
@@ -1117,16 +1127,16 @@ class BackendState:
             return copy.deepcopy(record)
 
     def save_source_frame(self, device_id, source_id, meta, frame_bytes):
+        safe_id = "".join(c for c in source_id if c.isalnum() or c in "-_")
+        file_path = self.frames_dir / f"{device_id}_src_{safe_id}_latest.jpg"
+        file_path.write_bytes(frame_bytes)
+
         with self.frame_condition:
             if device_id not in self.devices:
                 self.devices[device_id] = self._device_template(device_id)
 
             device = self.devices[device_id]
             sources = device.setdefault("latest_stream_by_source", {})
-
-            safe_id = "".join(c for c in source_id if c.isalnum() or c in "-_")
-            file_path = self.frames_dir / f"{device_id}_src_{safe_id}_latest.jpg"
-            file_path.write_bytes(frame_bytes)
 
             prev_version = sources.get(source_id, {}).get("frame_version", 0)
             sources[source_id] = {
@@ -1141,7 +1151,6 @@ class BackendState:
             device["last_seen_at"] = utcnow_iso()
             device["updated_at"] = utcnow_iso()
 
-            self._db_save_device_locked(device_id)
             self._emit_event_locked("frame.updated", {"device_id": device_id, "source_id": source_id})
             self.frame_condition.notify_all()
 

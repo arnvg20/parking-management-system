@@ -2994,7 +2994,7 @@
                     const card = document.createElement("div");
                     card.className = "image-card";
                     card.innerHTML = `
-                        <img src="${esc(image.url)}?ts=${Date.now()}" alt="Uploaded image">
+                        <img src="${esc(image.url)}" alt="Uploaded image">
                         <div class="image-card-body">
                             <strong>${esc((image.metadata && image.metadata.license_plate) || image.original_filename || image.filename)}</strong>
                             <div>${esc(timeText(image.created_at))}</div>
@@ -3114,7 +3114,7 @@
             const plateImageItem = document.getElementById("plateImageItem");
             const plateImageUrl = vehicle ? imageUrlForVehicle(vehicle) : null;
             if (plateImageUrl) {
-                plateImage.src = `${plateImageUrl}${plateImageUrl.includes("?") ? "&" : "?"}ts=${Date.now()}`;
+                plateImage.src = plateImageUrl;
                 plateImageItem.querySelector(".plate-image-placeholder").style.display = "none";
                 plateImage.style.display = "";
             } else {

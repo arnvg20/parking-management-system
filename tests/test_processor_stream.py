@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
-from pathlib import Path
+from unittest.mock import Mock, patch
 
 from backend_state import BackendState
 
@@ -114,6 +114,24 @@ class ProcessorStreamTests(unittest.TestCase):
         self.assertIn("wide", sources)
         self.assertEqual(sources["processor"]["camera_role"], "processor")
         self.assertEqual(sources["wide"]["camera_role"], "wide")
+
+    def test_save_source_frame_skips_device_db_persistence(self):
+        self.state._db.upsert_device = Mock(wraps=self.state._db.upsert_device)
+
+        self.state.save_source_frame("jetson-01", "processor", {}, FAKE_JPEG)
+
+        self.assertEqual(self.state._db.upsert_device.call_count, 0)
+
+    def test_heartbeat_device_persistence_is_throttled(self):
+        self.state._db.upsert_device = Mock(wraps=self.state._db.upsert_device)
+        self.state._device_last_persisted_at.clear()
+
+        with patch("backend_state.time.monotonic", side_effect=[100.0, 101.0, 106.5, 106.6]):
+            self.state.update_heartbeat("jetson-01", {"status": "online"})
+            self.state.update_heartbeat("jetson-01", {"status": "online"})
+            self.state.update_heartbeat("jetson-01", {"status": "online"})
+
+        self.assertEqual(self.state._db.upsert_device.call_count, 2)
 
 
 if __name__ == "__main__":

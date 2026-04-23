@@ -298,7 +298,7 @@ document.getElementById('modal-plate').addEventListener('keydown', e => {
 
 // ── Uploads ───────────────────────────────────────────────────────────────────
 async function loadUploads() {
-  const r = await fetch('/admin/api/uploads?limit=60');
+  const r = await fetch('/admin/api/uploads?limit=24');
   const data = await r.json();
   if (!data.length) {
     document.getElementById('uploads-content').innerHTML = '<p class="empty">No uploads yet.</p>';

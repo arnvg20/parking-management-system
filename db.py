@@ -65,9 +65,22 @@ CREATE TABLE IF NOT EXISTS meta (
 );
 """
 
+_TRANSIENT_DEVICE_FIELDS = {
+    "latest_frame_bytes",
+    "latest_frame_path",
+    "latest_frame_updated_at",
+    "latest_frame_version",
+    "latest_stream_by_source",
+}
+
 
 def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     return dict(zip(row.keys(), tuple(row)))
+
+
+def _serialize_device(device: dict[str, Any]) -> str:
+    clean = copy.deepcopy({k: v for k, v in device.items() if k not in _TRANSIENT_DEVICE_FIELDS})
+    return json.dumps(clean, default=str)
 
 
 class ParkingDB:
@@ -137,13 +150,9 @@ class ParkingDB:
     # ------------------------------------------------------------------ #
 
     def upsert_device(self, device_id: str, device: dict[str, Any]) -> None:
-        clean = copy.deepcopy({k: v for k, v in device.items() if k != "latest_frame_bytes"})
-        for src in clean.get("latest_stream_by_source", {}).values():
-            if isinstance(src, dict):
-                src.pop("_frame_bytes", None)
         self._conn.execute(
             "INSERT OR REPLACE INTO devices (device_id, data) VALUES (?,?)",
-            (device_id, json.dumps(clean, default=str)),
+            (device_id, _serialize_device(device)),
         )
         self._conn.commit()
 
@@ -175,6 +184,31 @@ class ParkingDB:
             ),
         )
         self._conn.commit()
+
+    def insert_command_and_set_sequence(self, command: dict[str, Any], next_sequence: int) -> None:
+        with self._conn:
+            self._conn.execute(
+                """INSERT OR IGNORE INTO commands
+                   (id, device_id, command, payload, requested_by, status,
+                    created_at, dispatched_at, completed_at, result)
+                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    command["id"],
+                    command["device_id"],
+                    command["command"],
+                    json.dumps(command.get("payload") or {}),
+                    command.get("requested_by") or "operator",
+                    command.get("status") or "queued",
+                    command["created_at"],
+                    command.get("dispatched_at"),
+                    command.get("completed_at"),
+                    json.dumps(command["result"]) if command.get("result") else None,
+                ),
+            )
+            self._conn.execute(
+                "INSERT OR REPLACE INTO meta (key, value) VALUES (?,?)",
+                ("command_sequence", str(next_sequence)),
+            )
 
     def update_command(self, command: dict[str, Any]) -> None:
         self._conn.execute(
