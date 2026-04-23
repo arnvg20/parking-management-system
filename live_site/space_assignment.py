@@ -216,7 +216,7 @@ class LotSpaceAssociationConfig:
 
     outside_space_max_distance_m: float = 3.0
     ambiguous_score_margin: float = 0.08
-    ambiguous_distance_margin_m: float = 0.75
+    ambiguous_distance_margin_m: float = 0.10
     empty_after_seconds: int = 25
     history_window_seconds: int = 45
     min_confirmations_for_occupied: int = 2
