@@ -59,6 +59,8 @@ http://YOUR_EC2_PUBLIC_IP_OR_DOMAIN:5000
 - `DEMO_TELEMETRY_ENABLED`: set to `true` if you want fake telemetry for a quick demo.
 - `DEMO_TELEMETRY_INTERVAL_SECONDS`: fake telemetry update interval.
 - `MEDIA_MTX_REQUEST_TIMEOUT_SECONDS`: backend timeout when proxying WHEP signaling.
+- `JETSON_UPLOAD_IMAGE_READ_TIMEOUT_SECONDS`: backend-side guard while reading a crop upload. Default is `10`.
+- `JETSON_UPLOAD_IMAGE_MAX_BYTES`: maximum accepted crop image size. Default is `5242880`.
 - `BBOX_FILTER_ENABLED`: enables the server-side bbox pre-filter before GPS stall matching.
 - `BBOX_WINDOW_SEC`: camera-local detection window used for bbox ranking. Default is `2.0`.
 - `BBOX_TOP_K_PER_WINDOW`: number of strongest bbox detections allowed through each window. Default is `1`.
@@ -119,6 +121,10 @@ These endpoints are available for the Jetson and remain separate from the MediaM
 - `POST /api/jetson/heartbeat`
 - `POST /api/jetson/telemetry`
 - `POST /api/jetson/upload-image`
+
+`jetson_remote_bridge.py` provides a Jetson-side helper for this contract. Heartbeat, telemetry, command polling, and command ack use the normal `HTTP_TIMEOUT_SEC` path, while OCR crop uploads are queued to a background best-effort uploader with `IMAGE_UPLOAD_TIMEOUT_SEC` defaulting to `4` seconds. The uploader coalesces duplicate plate/track crops, caps pending work, retries with bounded backoff, drops stale crops, and only counts an upload after `/api/jetson/upload-image` confirms storage.
+
+Jetson-side bridge knobs: `HTTP_TIMEOUT_SEC=15`, `IMAGE_UPLOAD_TIMEOUT_SEC=4`, `IMAGE_UPLOAD_MAX_PENDING=64`, `IMAGE_UPLOAD_MAX_ATTEMPTS=3`, `IMAGE_UPLOAD_MAX_AGE_SEC=120`, `IMAGE_UPLOAD_BACKOFF_BASE_SEC=1`, `IMAGE_UPLOAD_BACKOFF_MAX_SEC=15`, and `FRAME_UPLOAD_ENABLED=false`.
 
 Supported queued commands:
 

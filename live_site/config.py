@@ -49,6 +49,8 @@ class Settings:
     gps_calibration_enabled: bool
     gps_offset_lat: float
     gps_offset_lon: float
+    jetson_upload_image_read_timeout_seconds: float
+    jetson_upload_image_max_bytes: int
     static_dir: Path
     runtime_dir: Path
 
@@ -78,6 +80,10 @@ class Settings:
             gps_calibration_enabled=_env_flag("GPS_CALIBRATION_ENABLED", False),
             gps_offset_lat=float(os.getenv("GPS_OFFSET_LAT", "0.0")),
             gps_offset_lon=float(os.getenv("GPS_OFFSET_LON", "0.0")),
+            jetson_upload_image_read_timeout_seconds=float(
+                os.getenv("JETSON_UPLOAD_IMAGE_READ_TIMEOUT_SECONDS", "10")
+            ),
+            jetson_upload_image_max_bytes=int(os.getenv("JETSON_UPLOAD_IMAGE_MAX_BYTES", str(5 * 1024 * 1024))),
             static_dir=Path(__file__).resolve().parent / "static",
             runtime_dir=BASE_DIR / "runtime_data",
         )

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import queue
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -49,6 +52,7 @@ from .telemetry import DemoTelemetryPublisher, TelemetryHub
 
 
 settings = Settings.from_env()
+logger = logging.getLogger(__name__)
 telemetry_hub = TelemetryHub()
 demo_publisher = DemoTelemetryPublisher(telemetry_hub, settings)
 WHEP_PROXY_PREFIX = "/api/webrtc"
@@ -582,6 +586,7 @@ async def jetson_upload_image(
 ) -> dict[str, Any]:
     _require_jetson_auth(request)
     resolved_device_id = _resolve_device_id(request, explicit_value=device_id)
+    started_at = time.monotonic()
     form = await request.form()
     metadata = {
         key: value
@@ -589,14 +594,55 @@ async def jetson_upload_image(
         if key not in {"image", "device_id"}
     }
 
-    image_bytes = await image.read()
-    image_record = await run_in_threadpool(
-        state.save_image,
+    try:
+        image_bytes = await asyncio.wait_for(
+            image.read(),
+            timeout=settings.jetson_upload_image_read_timeout_seconds,
+        )
+    except asyncio.TimeoutError:
+        logger.warning(
+            "jetson image upload timed out while reading body device_id=%s filename=%s",
+            resolved_device_id,
+            image.filename,
+        )
+        raise HTTPException(status_code=408, detail="Timed out reading uploaded image")
+
+    image_size = len(image_bytes)
+    if image_size > settings.jetson_upload_image_max_bytes:
+        logger.warning(
+            "jetson image upload rejected device_id=%s filename=%s size=%s max_size=%s",
+            resolved_device_id,
+            image.filename,
+            image_size,
+            settings.jetson_upload_image_max_bytes,
+        )
+        raise HTTPException(status_code=413, detail="Uploaded image is too large")
+
+    try:
+        image_record = await run_in_threadpool(
+            state.save_image,
+            resolved_device_id,
+            image.filename,
+            image_bytes,
+            metadata,
+            image.content_type or "image/jpeg",
+        )
+    except Exception:
+        logger.exception(
+            "jetson image upload failed while saving device_id=%s filename=%s size=%s",
+            resolved_device_id,
+            image.filename,
+            image_size,
+        )
+        raise HTTPException(status_code=500, detail="Unable to store uploaded image")
+
+    logger.info(
+        "jetson image upload stored device_id=%s image_id=%s filename=%s size=%s duration_sec=%.3f",
         resolved_device_id,
+        image_record["id"],
         image.filename,
-        image_bytes,
-        metadata,
-        image.content_type or "image/jpeg",
+        image_size,
+        time.monotonic() - started_at,
     )
     return {"status": "stored", "image": image_record}
 
